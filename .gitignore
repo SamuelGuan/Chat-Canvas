@@ -25,6 +25,9 @@ Thumbs.db
 # Vendor (参考源码，不入库)
 vendor/
 
+# v0.4 数据目录（聊天隐私不入库；目录内部独立 git 管理，见 Q1）
+chat-canvas-data/
+
 # Drafts / temporary notes
 草稿纸堆/
 

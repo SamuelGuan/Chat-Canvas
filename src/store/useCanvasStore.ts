@@ -4,11 +4,39 @@
  * v0.3: Session 管理 + 拼装模式 + forkLabel。
  */
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
 import { nanoid } from 'nanoid';
 import { GraphNode, GraphEdge, SessionData, ProjectData, CanvasViewport, DEFAULT_PROJECT_ID, IMPORT_PROJECT_ID } from '@/types';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { sessionContentHash } from '@/lib/utils';
+import { getStorageAdapter } from '@/lib/storage/adapter';
+import { migrateLocalStorageBlob } from '@/lib/storage/migrateToFiles';
+import { LEGACY_STORAGE_KEY, STATE_FILE } from '@/lib/storage/protocol';
+
+/**
+ * v0.4 Phase 1：persist 落盘由 localStorage 换成 StorageAdapter（整包 blob → state.json）。
+ * store 结构不动、行为不变；旧 localStorage 数据在首次读取时一次性迁移，
+ * 迁移失败回退读旧 key（保留重试机会），写路径仍走适配器。
+ */
+const adapterStorage: StateStorage = {
+  getItem: async () => {
+    const adapter = await getStorageAdapter();
+    if (adapter.kind !== 'localstorage') {
+      const result = await migrateLocalStorageBlob(adapter);
+      if (result === 'failed') return localStorage.getItem(LEGACY_STORAGE_KEY);
+    }
+    const data = await adapter.readJson(STATE_FILE);
+    return data ? JSON.stringify(data) : null;
+  },
+  setItem: async (_name, value) => {
+    const adapter = await getStorageAdapter();
+    await adapter.writeJson(STATE_FILE, JSON.parse(value));
+  },
+  removeItem: async () => {
+    const adapter = await getStorageAdapter();
+    await adapter.delete(STATE_FILE);
+  },
+};
 
 const defaultViewport: CanvasViewport = { x: 0, y: 0, zoom: 1 };
 
@@ -513,7 +541,7 @@ export const useCanvasStore = create<CanvasState>()(
     },
     {
       name: 'chat-canvas-session',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => adapterStorage),
       version: 3,
       // 自定义合并：在默认浅合并基础上做启动自愈（一次性迁移管不到的场景：旧库删过固定项目、
       // 中间态数据、降级使用等），每次恢复时强制执行不变量

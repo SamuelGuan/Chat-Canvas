@@ -8,6 +8,10 @@ export interface ElectronAPI {
   getVersion: () => Promise<string>;
   secureGet: (key: string) => Promise<string | null>;
   secureSet: (key: string, value: string) => Promise<void>;
+  storeRead: (relPath: string) => Promise<unknown | null>;
+  storeWrite: (relPath: string, data: unknown) => Promise<void>;
+  storeDelete: (relPath: string) => Promise<void>;
+  storeList: (dirRelPath: string) => Promise<string[]>;
   onMenuNewCard: (cb: () => void) => void;
   onMenuOpenSettings: (cb: () => void) => void;
   onMenuImport: (cb: () => void) => void;

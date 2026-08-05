@@ -11,6 +11,13 @@ const electronAPI = {
   secureSet: (key: string, value: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.SECURE_SET, key, value),
 
+  // 文件存储（readJson 不存在返回 null / writeJson 原子写 / delete 递归 / list 列目录）
+  storeRead: (relPath: string) => ipcRenderer.invoke(IPC_CHANNELS.STORE_READ, relPath),
+  storeWrite: (relPath: string, data: unknown) =>
+    ipcRenderer.invoke(IPC_CHANNELS.STORE_WRITE, relPath, data),
+  storeDelete: (relPath: string) => ipcRenderer.invoke(IPC_CHANNELS.STORE_DELETE, relPath),
+  storeList: (dirRelPath: string) => ipcRenderer.invoke(IPC_CHANNELS.STORE_LIST, dirRelPath),
+
   // 菜单事件监听
   onMenuNewCard: (callback: () => void) => {
     ipcRenderer.on(IPC_CHANNELS.MENU_NEW_CARD, () => callback());

@@ -7,6 +7,12 @@ export const IPC_CHANNELS = {
   // 应用信息
   GET_VERSION: 'get-version',
 
+  // 文件存储（《消息服务协议 v1》Electron 实现）
+  STORE_READ: 'store:read',
+  STORE_WRITE: 'store:write',
+  STORE_DELETE: 'store:delete',
+  STORE_LIST: 'store:list',
+
   // 菜单事件
   MENU_NEW_CARD: 'menu-new-card',
   MENU_OPEN_SETTINGS: 'menu-open-settings',

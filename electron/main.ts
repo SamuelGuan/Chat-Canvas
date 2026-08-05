@@ -3,9 +3,37 @@ import { app, BrowserWindow, ipcMain, safeStorage, Menu } from 'electron';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { buildMenu } from './menu.js';
+import { IPC_CHANNELS } from './ipc-channels.js';
+import { deletePath, ensureDataRoot, listDir, readJsonFile, resolveDataRoot, writeJsonFile } from '../scripts/storeCore.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 let mainWindow: BrowserWindow | null = null;
+
+// 数据目录：dev 模式 process.cwd() 即项目根；打包后安装目录只读，落到 userData（Q2，打包路径打包时再验证）
+const dataRoot = app.isPackaged
+  ? join(app.getPath('userData'), 'chat-canvas-data')
+  : resolveDataRoot(process.cwd());
+
+// IPC: 文件存储（《消息服务协议 v1》Electron 实现，语义与 Vite 中间件一致，见 docs/store-protocol.md）
+ipcMain.handle(IPC_CHANNELS.STORE_READ, (_e, relPath: string) => {
+  ensureDataRoot(dataRoot);
+  return readJsonFile(dataRoot, relPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.STORE_WRITE, (_e, relPath: string, data: unknown) => {
+  ensureDataRoot(dataRoot);
+  return writeJsonFile(dataRoot, relPath, data);
+});
+
+ipcMain.handle(IPC_CHANNELS.STORE_DELETE, (_e, relPath: string) => {
+  ensureDataRoot(dataRoot);
+  return deletePath(dataRoot, relPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.STORE_LIST, (_e, dirRelPath: string) => {
+  ensureDataRoot(dataRoot);
+  return listDir(dataRoot, dirRelPath);
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({
