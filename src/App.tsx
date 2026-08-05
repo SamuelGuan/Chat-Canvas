@@ -198,15 +198,6 @@ export default function App() {
   const sidebarScale = useSettingsStore((s) => s.sidebarScale);
   const activeProviderId = useSettingsStore((s) => s.activeProviderId);
 
-  // v0.4：persist 落盘改为异步 StorageAdapter，水合完成前不渲染画布，
-  // 避免水合窗口内的编辑被持久化合入覆盖（原 localStorage 同步水合无此窗口）
-  const [canvasHydrated, setCanvasHydrated] = useState(() => useCanvasStore.persist.hasHydrated());
-  useEffect(() => {
-    const unsub = useCanvasStore.persist.onFinishHydration(() => setCanvasHydrated(true));
-    if (useCanvasStore.persist.hasHydrated()) setCanvasHydrated(true);
-    return unsub;
-  }, []);
-
   const session = useCanvasStore((s) => s.session);
   const sessions = useCanvasStore((s) => s.sessions);
   const activeSessionId = useCanvasStore((s) => s.activeSessionId);
@@ -232,9 +223,10 @@ export default function App() {
   const hasApiKey = !!activeProvider?.apiKey;
 
   // Session 列表按创建时间倒序（越晚越靠上）
+  // v0.4：sessions 字典只含非激活 Session（无副本），列表视图合成时补上激活 Session
   const sortedSessions = useMemo(() => {
-    return Object.values(sessions).sort((a, b) => b.createdAt - a.createdAt);
-  }, [sessions]);
+    return [session, ...Object.values(sessions)].sort((a, b) => b.createdAt - a.createdAt);
+  }, [sessions, session]);
 
   // 项目按创建时间倒序
   const sortedProjects = useMemo(() => {
@@ -319,10 +311,6 @@ export default function App() {
     });
     api.onMenuToggleTheme(() => setTheme(theme === 'dark' ? 'light' : 'dark'));
   }, [isElectron, addNode, theme, setTheme]);
-
-  if (!canvasHydrated) {
-    return <div className="h-screen w-screen bg-[#f5f4ed] dark:bg-zinc-900" />;
-  }
 
   return (
     <div className="h-screen w-screen flex flex-row overflow-hidden bg-[#f5f4ed] dark:bg-zinc-900">

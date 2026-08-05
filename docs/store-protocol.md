@@ -75,17 +75,26 @@ Electron 侧等价 IPC 通道（语义与上表一一对应）：`store:read` / 
 - 同一路径的写操作在服务端串行化（单进程单窗口基本无并发，此为兜底）；
 - 中间件只存在于 dev server，`vite build` 产物不含 —— 静态部署自动降级 LocalStorageAdapter。
 
-## 6. 数据目录布局（v0.4 Phase 1 现状）
+## 6. 数据目录布局（v0.4 Phase 2 现状）
 
 ```
 chat-canvas-data/                  # 项目仓库 gitignore；目录内部独立 git 仓库（Q1）
-├── state.json                     # persist 整包 blob（Phase 1 形态，zustand { state, version } 信封）
-├── migration-backup-<ts>.json     # 旧 localStorage 迁移前的原样硬拷贝备份
+├── index.json                     # MBR：{ version, activeProjectId, projects: [ProjectMeta...] }
+├── state.blob-backup.json         # Phase 1 整包 blob 拆分前的硬备份（一次性迁移产物）
+├── migration-backup-<ts>.json     # 旧 localStorage 迁移前的硬拷贝备份（一次性迁移产物）
+├── projects/
+│   ├── <pid>/
+│   │   ├── project.json           # PBR：{ version, id, name, activeSessionId, sessionIds }
+│   │   ├── assets/                # 二进制资源（后续 PDF/图片），JSON 内仅存相对路径引用
+│   │   └── sessions/
+│   │       └── <sid>.json         # 分区数据区：{ version, ...SessionData }
+│   └── ...
 └── .git/                          # 数据目录内独立仓库（best-effort init）
 ```
 
-Phase 2 起拆分为三级文件（`index.json` / `projects/<pid>/project.json` /
-`projects/<pid>/sessions/<sid>.json`），拆分规则与 schema 见 `versions/v0.4.md` 第 3、12 节。
+三级文件各携带独立 `version`（当前 `STORE_FILE_VERSION = 1`），支持按文件粒度懒升级；
+id 即路径（project id = 文件夹名，session id = 文件名），改名只改 JSON 内 name 字段。
+拆分规则与 schema 见 `versions/v0.4.md` 第 3、12 节。
 
 ## 7. 版本历史
 

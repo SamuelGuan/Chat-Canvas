@@ -11,13 +11,29 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
-/** 防抖 */
+/** 深拷贝 Session（JSON 序列化语义，丢失 undefined 字段） */
+export function cloneSession(src: SessionData): SessionData {
+  return JSON.parse(JSON.stringify(src));
+}
+
+/**
+ * 防抖（附带 cancel：卸载/删除场景丢弃未触发的写入）
+ *
+ * :param fn: 被防抖函数
+ * :param delay: 延迟毫秒数
+ * :return: 防抖包装函数，含 cancel() 方法
+ */
 export function debounce<T extends (...args: any[]) => void>(fn: T, delay = 300) {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  return (...args: Parameters<T>) => {
+  const wrapped = (...args: Parameters<T>) => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => fn(...args), delay);
   };
+  wrapped.cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  return wrapped;
 }
 
 /** 格式化时间 */

@@ -20,6 +20,8 @@ export function SettingsDialog({ open, onClose }: Props) {
   const { isElectron } = useElectron();
 
   const [activeTab, setActiveTab] = useState(settings.providers[0]?.id ?? 'deepseek');
+  // v0.4：sessions 字典只含非激活 Session，导出下拉需合成含激活 Session 的全量视图
+  const allSessions = { ...sessions, [session.id]: session };
   // 悬停按钮的说明文字（行内说明栏，避免悬浮气泡被面板裁剪）
   const [hoverTip, setHoverTip] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
@@ -37,7 +39,7 @@ export function SettingsDialog({ open, onClose }: Props) {
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url;
-    const name = isAll ? 'all' : (sessions[exportTarget]?.name ?? 'session');
+    const name = isAll ? 'all' : (allSessions[exportTarget]?.name ?? 'session');
     a.download = `chat-canvas-${name}-${Date.now()}.json`;
     a.click(); URL.revokeObjectURL(url);
   }
@@ -185,7 +187,7 @@ export function SettingsDialog({ open, onClose }: Props) {
             {/* 先选择要导出的 Session，再点击导出 */}
             <div className="flex gap-2 items-center">
               <select value={exportTarget} onChange={(e) => setExportTarget(e.target.value)} className="flex-1 rounded-lg border px-3 py-1.5 text-xs outline-none border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100" title="选择要导出的 Session">
-                {Object.values(sessions).map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+                {Object.values(allSessions).map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
                 <option value="__all__">全部 Sessions</option>
               </select>
               <button onClick={handleExport} className="rounded-lg bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 shrink-0">导出 JSON</button>

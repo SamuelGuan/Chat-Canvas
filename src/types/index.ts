@@ -82,6 +82,33 @@ export const DEFAULT_PROJECT_ID = 'proj_default';
 /** 固定项目 ID：导入的 Sessions（不可删除），导入的 Session 统一归入此项目 */
 export const IMPORT_PROJECT_ID = 'proj_imported';
 
+/* ===== v0.4 三级文件格式（MBR / PBR / 分区数据区） ===== */
+
+/** 三级文件当前格式版本（index/project/session 各自携带，支持按文件粒度懒升级） */
+export const STORE_FILE_VERSION = 1;
+
+/** 项目注册表条目（index.json 内 projects 数组元素；与 ProjectData 同形） */
+export type ProjectMeta = ProjectData;
+
+/** index.json（MBR）：根索引 —— 项目注册表 + activeProjectId */
+export interface RootIndex {
+  version: number;
+  activeProjectId: string;
+  projects: ProjectMeta[];
+}
+
+/** projects/<pid>/project.json（PBR）：项目内 Session 注册表 + activeSessionId */
+export interface ProjectFile {
+  version: number;
+  id: string;
+  name: string;
+  activeSessionId: string | null;
+  sessionIds: string[];
+}
+
+/** projects/<pid>/sessions/<sid>.json（分区数据区）：SessionData + 文件版本 */
+export type SessionFile = SessionData & { version: number };
+
 /* ===== @deprecated ===== */
 
 /** @deprecated 使用 GraphNode 替代 */
