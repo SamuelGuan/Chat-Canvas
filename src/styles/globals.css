@@ -1,0 +1,282 @@
+/* src/styles/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    @apply h-full w-full m-0 p-0;
+    @apply dark:bg-zinc-900;
+    @apply text-zinc-900 dark:text-zinc-100;
+    /* 浅色模式：Claude 风格暖米白画布底色，与卡片天然分离 */
+    background-color: #fffce5;
+    /* 英文/数字用 Times New Roman，中文用 Windows 自带宋体（SimSun，国标宋体）；
+       浏览器按字符自动选择首个含该字形的字体 */
+    font-family: 'Times New Roman', SimSun, '宋体', serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* 按钮、输入框等表单元素默认使用系统字体而不继承 body，需显式继承；
+     代码块 code/pre 保持等宽字体（Tailwind preflight），不受此影响 */
+  button, input, textarea, select {
+    font-family: inherit;
+  }
+
+  /* 暗色模式 */
+  .dark {
+    color-scheme: dark;
+  }
+}
+
+@layer components {
+  /* 画布区域真正底色：React Flow 容器与背景层都需显式覆盖 */
+  .react-flow,
+  .react-flow__background {
+    background-color: #f5f4ed;
+  }
+
+  .dark .react-flow,
+  .dark .react-flow__background {
+    background-color: #18181b;
+  }
+
+  @keyframes aiBreathPulseOrange {
+    0% {
+      transform: scale(0.96);
+      opacity: 0.55;
+      box-shadow: 0 0 0 0 rgba(217, 119, 87, 0.32);
+    }
+    50% {
+      transform: scale(1.08);
+      opacity: 1;
+      box-shadow: 0 0 0 8px rgba(224, 134, 95, 0);
+    }
+    100% {
+      transform: scale(0.96);
+      opacity: 0.55;
+      box-shadow: 0 0 0 0 rgba(217, 119, 87, 0);
+    }
+  }
+
+  @keyframes aiBreathPulse {
+    0% {
+      transform: scale(0.96);
+      opacity: 0.55;
+      box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.28);
+    }
+    50% {
+      transform: scale(1.08);
+      opacity: 1;
+      box-shadow: 0 0 0 8px rgba(192, 132, 252, 0);
+    }
+    100% {
+      transform: scale(0.96);
+      opacity: 0.55;
+      box-shadow: 0 0 0 0 rgba(168, 85, 247, 0);
+    }
+  }
+
+  .ai-breathing-status {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2 py-0.5;
+    color: #b04e2e;
+    background: linear-gradient(135deg, rgba(250, 233, 224, 0.96), rgba(246, 221, 209, 0.88));
+  }
+
+  .dark .ai-breathing-status {
+    color: #d8b4fe;
+    background: linear-gradient(135deg, rgba(88, 28, 135, 0.34), rgba(91, 33, 182, 0.24));
+  }
+
+  .ai-breathing-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #e0865f, #d97757);
+    animation: aiBreathPulseOrange 1.8s ease-in-out infinite;
+  }
+
+  .dark .ai-breathing-dot {
+    background: linear-gradient(135deg, #a855f7, #8b5cf6);
+    animation-name: aiBreathPulse;
+  }
+
+  @keyframes messageFadeGlow {
+    0% {
+      box-shadow: 0 0 0 rgba(168, 85, 247, 0);
+      background-color: rgba(243, 232, 255, 0);
+      transform: translateY(1px);
+    }
+    30% {
+      box-shadow: 0 0 0 6px rgba(168, 85, 247, 0.08);
+      background-color: rgba(243, 232, 255, 0.72);
+      transform: translateY(0);
+    }
+    100% {
+      box-shadow: 0 0 0 rgba(168, 85, 247, 0);
+      background-color: transparent;
+      transform: translateY(0);
+    }
+  }
+
+  .message-success-highlight {
+    animation: messageFadeGlow 1.15s ease-out 1;
+  }
+
+  @keyframes nodeFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .chat-node-enter {
+    animation: nodeFadeIn 0.28s ease-out;
+  }
+
+  /* 浅色模式：卡片深褐色柔和阴影；深色模式保持原 shadow-sm */
+  .chat-node-card {
+    box-shadow: 0 1px 2px rgba(78, 56, 40, 0.08),
+      0 6px 20px rgba(78, 56, 40, 0.1);
+  }
+
+  .dark .chat-node-card {
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+
+  /* 选中态发光需置于基础阴影之后，保证覆盖生效；浅色为橙色系 */
+  .chat-node-selected-glow {
+    box-shadow: 0 0 0 1px rgba(217, 119, 87, 0.2),
+      0 0 0 6px rgba(217, 119, 87, 0.1),
+      0 10px 30px rgba(217, 119, 87, 0.18);
+  }
+
+  .dark .chat-node-selected-glow {
+    box-shadow: 0 0 0 1px rgba(192, 132, 252, 0.16),
+      0 0 0 6px rgba(168, 85, 247, 0.1),
+      0 12px 36px rgba(88, 28, 135, 0.28);
+  }
+
+  /* 调整大小手柄：浅色模式橙色系；深色模式保持库默认 */
+  .react-flow__resize-control.line {
+    border-color: rgba(217, 119, 87, 0.7) !important;
+  }
+
+  .react-flow__resize-control.handle {
+    border-color: #d97757 !important;
+  }
+
+  /* 聊天消息行间距 */
+  .prose {
+    line-height: 1.3 !important;
+  }
+
+  .prose p {
+    margin-top: 0.3em;
+    margin-bottom: 0.3em;
+  }
+
+  /* ===== Markdown 排版美化（项目未装 typography 插件，需手动补齐被 preflight 重置的样式） ===== */
+  .prose > :first-child { margin-top: 0; }
+  .prose > :last-child { margin-bottom: 0; }
+
+  /* 小标题：与上文拉开距离，与紧随的正文保持紧凑 */
+  .prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+    @apply font-semibold text-zinc-900 dark:text-zinc-100;
+    margin-top: 1.2em;
+    margin-bottom: 0.45em;
+    line-height: 1.35;
+  }
+  .prose h1 { font-size: 1.3em; }
+  .prose h2 { font-size: 1.18em; }
+  .prose h3 { font-size: 1.08em; }
+  .prose h4, .prose h5, .prose h6 { font-size: 1em; }
+
+  /* 列表：恢复 preflight 重置掉的符号/序号与缩进 */
+  .prose ul, .prose ol {
+    margin-top: 0.4em;
+    margin-bottom: 0.4em;
+    padding-left: 1.5em;
+  }
+  .prose ul { list-style: disc; }
+  .prose ol { list-style: decimal; }
+  .prose li { margin-top: 0.18em; margin-bottom: 0.18em; }
+  .prose li > ul, .prose li > ol { margin-top: 0.15em; margin-bottom: 0.15em; }
+
+  .prose blockquote {
+    @apply border-l-4 border-zinc-300 dark:border-zinc-600 text-zinc-500 dark:text-zinc-400;
+    margin: 0.6em 0;
+    padding-left: 0.8em;
+  }
+
+  /* 行内代码保持等宽；代码块底色与 github-dark 高亮主题一致 */
+  .prose code {
+    @apply rounded bg-zinc-100 dark:bg-zinc-700/70;
+    padding: 0.12em 0.35em;
+    font-size: 0.85em;
+  }
+  .prose pre {
+    margin: 0.6em 0;
+    padding: 0.75em 1em;
+    border-radius: 8px;
+    overflow-x: auto;
+    background-color: #0d1117;
+  }
+  .prose pre code {
+    background: transparent;
+    padding: 0;
+  }
+
+  .prose a { @apply text-blue-500 hover:underline; }
+  .prose strong { @apply font-semibold; }
+  .prose hr { @apply border-zinc-200 dark:border-zinc-700; margin: 0.9em 0; }
+
+  /* 表格（remark-gfm 解析，preflight 已重置边框需手动补回） */
+  .prose table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.6em 0;
+    font-size: 0.92em;
+  }
+  .prose th, .prose td {
+    @apply border border-zinc-300 dark:border-zinc-600 px-2.5 py-1.5 text-left align-top;
+  }
+  .prose th { @apply bg-zinc-100 dark:bg-zinc-700/60 font-semibold; }
+  .prose tbody tr:nth-child(even) { @apply bg-zinc-50 dark:bg-zinc-800/40; }
+
+  /* React Flow 暗色模式适配 */
+  .dark .react-flow__background {
+    background-color: #18181b;
+  }
+
+  .dark .react-flow__controls button {
+    @apply bg-zinc-800 border-zinc-700 text-zinc-300;
+  }
+
+  .dark .react-flow__controls button:hover {
+    @apply bg-zinc-700;
+  }
+
+  /* 滚动条美化 */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-zinc-300 dark:bg-zinc-600;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-zinc-400 dark:bg-zinc-500;
+  }
+}

@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+out/
+release/
+.vite/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# Logs
+*.log
+
+# Vendor (参考源码，不入库)
+vendor/
+
+# Drafts / temporary notes
+草稿纸堆/
+
+# Env
+.env.*
+!.env.example
+
+# Process documents (不上传过程性文件)
+ACCEPTANCE.md
+CODEX.md
+DONE.md
+REQUIREMENTS.md
+SOURCES.md
+TODO.md
+VERSION_UPGRADE.md
+versions/
