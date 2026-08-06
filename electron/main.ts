@@ -4,7 +4,7 @@ import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { buildMenu } from './menu.js';
 import { IPC_CHANNELS } from './ipc-channels.js';
-import { deletePath, ensureDataRoot, listDir, readJsonFile, resolveDataRoot, writeJsonFile } from '../scripts/storeCore.js';
+import { deletePath, ensureDataRoot, existsPath, listDir, readBinaryFile, readJsonFile, resolveDataRoot, writeBinaryFile, writeJsonFile } from '../scripts/storeCore.js';
 import { startStoreWatcher } from '../scripts/storeWatcher.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -34,6 +34,22 @@ ipcMain.handle(IPC_CHANNELS.STORE_DELETE, (_e, relPath: string) => {
 ipcMain.handle(IPC_CHANNELS.STORE_LIST, (_e, dirRelPath: string) => {
   ensureDataRoot(dataRoot);
   return listDir(dataRoot, dirRelPath);
+});
+
+// v0.5: 二进制文件 IPC
+ipcMain.handle(IPC_CHANNELS.STORE_READ_BINARY, async (_e, relPath: string) => {
+  ensureDataRoot(dataRoot);
+  return readBinaryFile(dataRoot, relPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.STORE_WRITE_BINARY, async (_e, relPath: string, data: ArrayBuffer) => {
+  ensureDataRoot(dataRoot);
+  return writeBinaryFile(dataRoot, relPath, data);
+});
+
+ipcMain.handle(IPC_CHANNELS.STORE_EXISTS, (_e, relPath: string) => {
+  ensureDataRoot(dataRoot);
+  return existsPath(dataRoot, relPath);
 });
 
 // 数据目录文件监听：外部进程改文件 → 一致性校验收敛 → 推送渲染层联动（自写事件在 watcher 内过滤）

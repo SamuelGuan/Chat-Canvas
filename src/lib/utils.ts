@@ -11,6 +11,37 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * React.memo 比较函数：浅比较 props 但忽略 data.position。
+ * 拖拽时仅 position 变化，React Flow 用 CSS transform 定位，无需 React 重渲染。
+ */
+export function shallowSkipPosition(prev: any, next: any): boolean {
+  const prevKeys = Object.keys(prev);
+  const nextKeys = Object.keys(next);
+  if (prevKeys.length !== nextKeys.length) return false;
+  for (const key of prevKeys) {
+    if (key === 'data' && prev.data && next.data && typeof prev.data === 'object' && typeof next.data === 'object') {
+      // 递归比较 data，跳过 position
+      const pd = { ...prev.data }; delete pd.position;
+      const nd = { ...next.data }; delete nd.position;
+      if (!shallowEq(pd, nd)) return false;
+    } else if (prev[key] !== next[key]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function shallowEq(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+  for (const k of ak) {
+    if (a[k] !== b[k] && !Number.isNaN(a[k]) && !Number.isNaN(b[k])) return false;
+  }
+  return true;
+}
+
 /** 深拷贝 Session（JSON 序列化语义，丢失 undefined 字段） */
 export function cloneSession(src: SessionData): SessionData {
   return JSON.parse(JSON.stringify(src));

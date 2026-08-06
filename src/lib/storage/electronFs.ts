@@ -1,7 +1,8 @@
 /**
  * src/lib/storage/electronFs.ts
  * ElectronFsAdapter：preload 暴露的 window.electronAPI.store* → IPC 到主进程 fs。
- * 语义与 DevServerAdapter 一致（读缺失返回 null / 原子写 / 递归删除 / 列目录）。
+ * 语义与 DevServerAdapter 一致（读缺失返回 null / 原子写 / 递归删除 / 列目录 / 二进制读写）。
+ * v0.5: 新增 writeBinary / readBinary / exists。
  */
 import { StoreError, type StorageAdapter } from './protocol';
 
@@ -35,6 +36,30 @@ export class ElectronFsAdapter implements StorageAdapter {
   async list(dirRelPath: string): Promise<string[]> {
     try {
       return await window.electronAPI!.storeList(dirRelPath);
+    } catch (e) {
+      throw toStoreError(e);
+    }
+  }
+
+  async writeBinary(relPath: string, data: ArrayBuffer): Promise<void> {
+    try {
+      await window.electronAPI!.storeWriteBinary(relPath, data);
+    } catch (e) {
+      throw toStoreError(e);
+    }
+  }
+
+  async readBinary(relPath: string): Promise<ArrayBuffer | null> {
+    try {
+      return await window.electronAPI!.storeReadBinary(relPath);
+    } catch (e) {
+      throw toStoreError(e);
+    }
+  }
+
+  async exists(relPath: string): Promise<boolean> {
+    try {
+      return await window.electronAPI!.storeExists(relPath);
     } catch (e) {
       throw toStoreError(e);
     }

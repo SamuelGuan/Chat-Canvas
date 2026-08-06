@@ -40,6 +40,12 @@ export interface StorageAdapter {
   delete(relPath: string): Promise<void>;
   /** 列目录直接子项名，用于一致性校验；目录不存在返回 [] */
   list(dirRelPath: string): Promise<string[]>;
+  /** 写二进制文件 (v0.5) */
+  writeBinary(relPath: string, data: ArrayBuffer): Promise<void>;
+  /** 读二进制文件；不存在返回 null (v0.5) */
+  readBinary(relPath: string): Promise<ArrayBuffer | null>;
+  /** 检查文件是否存在 (v0.5) */
+  exists(relPath: string): Promise<boolean>;
 }
 
 /** 统一错误格式 { error, code } 经适配器翻译后的抛出形态 */

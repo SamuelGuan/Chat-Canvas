@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { PROTOCOL_VERSION, STORE_API_BASE, StoreError } from './src/lib/storage/protocol';
-import { deletePath, ensureDataRoot, listDir, readJsonFile, resolveDataRoot, writeJsonFile } from './scripts/storeCore';
+import { deletePath, ensureDataRoot, existsPath, listDir, readBinaryFile, readJsonFile, resolveDataRoot, writeBinaryFile, writeJsonFile } from './scripts/storeCore';
 import { startStoreWatcher } from './scripts/storeWatcher';
 
 /**
@@ -57,7 +57,7 @@ async function handleStoreRequest(dataRoot: string, req: IncomingMessage, res: S
     return sendJson(res, 200, {
       kind: 'dev-server',
       version: PROTOCOL_VERSION,
-      capabilities: ['readJson', 'writeJson', 'delete', 'list', 'events'],
+      capabilities: ['readJson', 'writeJson', 'delete', 'list', 'readBinary', 'writeBinary', 'exists', 'events'],
     });
   }
   // SSE 服务端推送：外部变更通知（文件监听触发）
@@ -96,6 +96,23 @@ async function handleStoreRequest(dataRoot: string, req: IncomingMessage, res: S
   if (url.pathname === '/list' && method === 'GET') {
     return sendJson(res, 200, await listDir(dataRoot, rel));
   }
+  // v0.5: 二进制文件读写
+  if (url.pathname === '/binary' && method === 'PUT') {
+    const buffer = await readRawBody(req);
+    await writeBinaryFile(dataRoot, rel, buffer);
+    return sendJson(res, 200, { ok: true });
+  }
+  if (url.pathname === '/binary' && method === 'GET') {
+    const data = await readBinaryFile(dataRoot, rel);
+    if (data === null) return sendJson(res, 404, { error: `文件不存在: ${rel}`, code: 'ENOENT' });
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+    res.end(Buffer.from(data));
+    return;
+  }
+  // v0.5: 文件存在性检查
+  if (url.pathname === '/exists' && method === 'GET') {
+    return sendJson(res, 200, { exists: existsPath(dataRoot, rel) });
+  }
   return sendJson(res, 404, { error: `未知路由: ${method} ${url.pathname}`, code: 'ENOTFOUND' });
 }
 
@@ -104,6 +121,19 @@ function readBody(req: IncomingMessage): Promise<string> {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', () => resolvePromise(Buffer.concat(chunks).toString('utf-8')));
+    req.on('error', reject);
+  });
+}
+
+/** 读取原始请求体（二进制） */
+function readRawBody(req: IncomingMessage): Promise<ArrayBuffer> {
+  return new Promise((resolvePromise, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => {
+      const buf = Buffer.concat(chunks);
+      resolvePromise(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    });
     req.on('error', reject);
   });
 }

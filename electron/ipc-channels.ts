@@ -13,6 +13,9 @@ export const IPC_CHANNELS = {
   STORE_DELETE: 'store:delete',
   STORE_LIST: 'store:list',
   STORE_CHANGED: 'store:changed',
+  STORE_READ_BINARY: 'store:readBinary',
+  STORE_WRITE_BINARY: 'store:writeBinary',
+  STORE_EXISTS: 'store:exists',
 
   // 菜单事件
   MENU_NEW_CARD: 'menu-new-card',

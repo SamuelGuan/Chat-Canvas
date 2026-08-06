@@ -11,6 +11,30 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <!-- MathJax: 客户端渲染复杂数学公式 -->
+    <script>
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$']],
+          displayMath: [['$$', '$$']],
+          packages: { '[+]': ['ams', 'newcommand', 'configMacros'] },
+          macros: {
+            Hom: '\\operatorname{Hom}',
+            id: '\\operatorname{id}',
+            Ob: '\\operatorname{Ob}',
+            Mor: '\\operatorname{Mor}',
+            colim: '\\operatorname{colim}',
+            lim: '\\operatorname{lim}',
+          },
+        },
+        svg: { fontCache: 'global' },
+      };
+    </script>
+    <script
+      id="MathJax-script"
+      async
+      src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"
+    ></script>
   </head>
   <body>
     <div id="root"></div>

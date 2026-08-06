@@ -8,7 +8,6 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { useCanvasStore } from '@/store/useCanvasStore';
 import './styles/globals.css';
-import 'katex/dist/katex.min.css';
 
 async function main() {
   try {

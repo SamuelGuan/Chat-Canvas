@@ -1,3 +1,3 @@
-export { Canvas } from './Canvas';
-export { ChatNode } from './ChatNode';
-export { SettingsDialog } from './Settings';
+export { ChatNode } from './ChatNode/ChatNode';
+export { NoteNode } from './NoteNode/NoteNode';
+export { PdfNode } from './PdfNode/PdfNode';

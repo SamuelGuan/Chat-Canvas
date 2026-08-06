@@ -15,6 +15,8 @@ import { subscribeStoreEvents } from '@/lib/storage/events';
 import { SearchIcon, OutlineIcon, AssembleIcon, SettingsIcon } from '@/components/icons';
 import { cn } from '@/lib/utils';
 import { DEFAULT_PROJECT_ID } from '@/types';
+import '@/cards/builtin/register';
+import { matchCardSearch } from '@/cards/communicateAdapter';
 
 /* ===== 大纲面板组件 ===== */
 function OutlinePanel() {
@@ -122,16 +124,18 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
     const q = query.toLowerCase();
     return Object.values(session.nodes)
       .filter((n) => {
-        if (n.title.toLowerCase().includes(q)) return true;
-        return n.messages.some((m) => typeof m.content === 'string' && m.content.toLowerCase().includes(q));
+        // v0.5: 委托 cardComm 按卡片类型感知搜索
+        return matchCardSearch(n, q);
       })
       .slice(0, 10)
       .map((n) => {
-        const firstUser = n.messages.find((m) => m.role === 'user');
+        // 搜索预览：chat 取首条 user 消息，其他类型取 title
+        const hasMessages = 'messages' in n && Array.isArray(n.messages);
+        const firstUser = hasMessages ? n.messages.find((m: { role: string; content: unknown }) => m.role === 'user') : undefined;
         return {
           id: n.id,
           title: n.title,
-          preview: firstUser ? (typeof firstUser.content === 'string' ? firstUser.content : '').slice(0, 60) : '(无消息)',
+          preview: firstUser ? (typeof firstUser.content === 'string' ? firstUser.content : '').slice(0, 60) : `(${n.type} 卡片)`,
         };
       });
   }, [query, session.nodes]);

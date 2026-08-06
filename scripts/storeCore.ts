@@ -140,3 +140,35 @@ export async function listDir(dataRoot: string, rel: string): Promise<string[]> 
     throw e;
   }
 }
+
+/* ===== v0.5: 二进制文件读写 ===== */
+
+/** 读二进制文件；不存在返回 null */
+export async function readBinaryFile(dataRoot: string, rel: string): Promise<ArrayBuffer | null> {
+  const abs = resolveInside(dataRoot, rel);
+  try {
+    const buffer = await readFile(abs);
+    return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  } catch (e: any) {
+    if (e?.code === 'ENOENT' || e?.code === 'EISDIR') return null;
+    throw e;
+  }
+}
+
+/** 原子写二进制文件（同路径串行 + tmp 后 rename） */
+export async function writeBinaryFile(dataRoot: string, rel: string, data: ArrayBuffer): Promise<void> {
+  const abs = resolveInside(dataRoot, rel);
+  return enqueue(abs, async () => {
+    await mkdir(dirname(abs), { recursive: true });
+    const tmp = `${abs}.tmp-${process.pid}`;
+    await writeFile(tmp, new Uint8Array(data));
+    markSelfWrite(abs);
+    await rename(tmp, abs);
+  });
+}
+
+/** 检查文件是否存在 */
+export function existsPath(dataRoot: string, rel: string): boolean {
+  const abs = resolveInside(dataRoot, rel);
+  return existsSync(abs);
+}

@@ -31,7 +31,7 @@ export const INDEX_SCHEMA = {
           createdAt: { type: 'integer', description: 'Unix 毫秒时间戳' },
           updatedAt: { type: 'integer' },
         },
-        additionalProperties: false,
+        additionalProperties: true,
       },
     },
   },
@@ -62,7 +62,7 @@ export const PROJECT_SCHEMA = {
           createdAt: { type: 'integer' },
           updatedAt: { type: 'integer' },
         },
-        additionalProperties: false,
+        additionalProperties: true,
       },
     },
   },
@@ -88,10 +88,10 @@ export const SESSION_SCHEMA = {
       description: '图节点字典（键 = 节点 id）',
       additionalProperties: {
         type: 'object',
-        required: ['id', 'type', 'position', 'title', 'model', 'collapsed', 'createdAt', 'updatedAt', 'messages'],
+        required: ['id', 'type', 'position', 'title', 'collapsed', 'createdAt', 'updatedAt'],
         properties: {
           id: { type: 'string' },
-          type: { type: 'string', enum: ['chat'] },
+          type: { type: 'string', enum: ['chat', 'note', 'pdf'] },
           position: {
             type: 'object',
             required: ['x', 'y'],
@@ -184,14 +184,12 @@ const SCHEMA_FILES: Record<string, unknown> = {
 };
 
 /**
- * 确保 schema/ 三个文件存在（已存在不覆盖：外部进程以其为准，应用只保证首发落地）
+ * 确保 schema/ 三个文件存在（总是覆盖：schema 跟代码版本走）
  *
  * :param adapter: 存储适配器
  */
 export async function ensureSchemas(adapter: StorageAdapter): Promise<void> {
   for (const [path, schema] of Object.entries(SCHEMA_FILES)) {
-    if ((await adapter.readJson(path)) === null) {
-      await adapter.writeJson(path, schema);
-    }
+    await adapter.writeJson(path, schema);
   }
 }

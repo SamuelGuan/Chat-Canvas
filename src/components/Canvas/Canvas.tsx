@@ -13,13 +13,12 @@ import '@xyflow/react/dist/style.css';
 import { useCanvasStore } from '@/store/useCanvasStore';
 import { useChatStore } from '@/store/useChatStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { ChatNode } from '@/components/ChatNode/ChatNode';
-import { bfsCanReach } from '@/lib/contextBuilder';
 import { cn } from '@/lib/utils';
 import { useElectron } from '@/hooks/useElectron';
 import { SearchIcon, CopyIcon, TrashIcon } from '@/components/icons';
-
-const nodeTypes = { chat: ChatNode };
+import { cardRegistry } from '@/cards/registry';
+import { canConnect } from '@/cards/edgeValidator';
+import { exportCardContent } from '@/cards/communicateAdapter';
 
 function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
   useEffect(() => { const t = setTimeout(onDismiss, 3000); return () => clearTimeout(t); }, [onDismiss]);
@@ -87,7 +86,7 @@ function CanvasInner() {
   const nodesArray = useMemo(() => Object.values(session.nodes), [session.nodes]);
   useEffect(() => {
     setRfNodes(nodesArray.map((n) => ({
-      id: n.id, type: 'chat', position: n.position,
+      id: n.id, type: n.type, position: n.position,
       data: { ...n, isAssemble: assembleNodeIds.includes(n.id) },
       selected: selectedNodeId === n.id,
     })));
@@ -142,8 +141,10 @@ function CanvasInner() {
 
   const handleConnect = useCallback((conn: Connection) => {
     if (!conn.source || !conn.target) return;
-    if (bfsCanReach(useCanvasStore.getState().session.edges, conn.source, conn.target)) {
-      setToastMsg('禁止聊天消息流自环'); return;
+    // v0.5: 委托 edgeValidator 进行层内/层间规则 + BFS 环检测
+    const result = canConnect(conn.source, conn.target, useCanvasStore.getState().session);
+    if (!result.ok) {
+      setToastMsg(result.reason ?? '连线不合法'); return;
     }
     addEdge(conn.source, conn.target, 'inherit');
   }, [addEdge]);
@@ -228,11 +229,8 @@ function CanvasInner() {
       const n = session.nodes[nid];
       if (!n) continue;
       md += `## ${n.title}\n\n`;
-      for (const m of n.messages) {
-        if (m.status !== 'done') continue;
-        if (m.role === 'user') md += `**问**: ${m.content}\n\n`;
-        else if (m.role === 'assistant') md += `${m.content}\n\n`;
-      }
+      // v0.5: 委托 cardComm 按卡片类型导出内容
+      md += exportCardContent(n);
     }
     const blob = new Blob([md], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
@@ -251,7 +249,7 @@ function CanvasInner() {
         <button onClick={() => useCanvasStore.getState().toggleAssembleMode()} className="text-blue-400 hover:text-blue-600">退出</button>
       </div>
     )}
-    <ReactFlow nodes={rfNodes} edges={rfEdges} onNodesChange={handleNodesChange} onEdgesChange={handleEdgesChange} nodeTypes={nodeTypes}
+    <ReactFlow nodes={rfNodes} edges={rfEdges} onNodesChange={handleNodesChange} onEdgesChange={handleEdgesChange} nodeTypes={cardRegistry.nodeTypes()}
       onDoubleClick={handleDoubleClick} onConnect={handleConnect} onEdgeClick={handleEdgeClick}
       onContextMenu={handleContextMenu}
       onMoveEnd={(_, vp) => setViewport({ x: vp.x, y: vp.y, zoom: vp.zoom })}
@@ -278,7 +276,7 @@ function CanvasInner() {
               return;
             }
             const pos = { x: srcNode.position.x + 400, y: srcNode.position.y + 60 };
-            const newId = addNode(pos, selectedText);
+            const newId = addNode(pos, { title: selectedText });
             addEdge(sourceNodeId, newId, 'inherit', selectedText);
             useCanvasStore.getState().updateNode(newId, { forkLabel: `请详细解释 ${selectedText}` });
             setContextMenu(null);
@@ -291,13 +289,22 @@ function CanvasInner() {
     {/* 右键菜单 — 画布空白处 */}
     {paneMenu && (
       <div className="fixed z-50 rounded-lg border bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 shadow-lg py-1" style={{ left: paneMenu.x, top: paneMenu.y }} onClick={() => setPaneMenu(null)}>
-        <button className="w-full text-left px-3 py-1.5 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700"
-          onClick={() => {
-            addNode({ x: paneMenu.flowPos.x - 250, y: paneMenu.flowPos.y - 100 });
-            setPaneMenu(null);
-          }}>
-          + 在当前位置新建卡片
-        </button>
+        <div className="px-3 py-1 text-[9px] text-zinc-400 uppercase">新建卡片</div>
+        {cardRegistry.creatableTypes().map((ct) => (
+          <button
+            key={ct.type}
+            className="w-full text-left px-3 py-1.5 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+            onClick={() => {
+              addNode(
+                { x: paneMenu.flowPos.x - 250, y: paneMenu.flowPos.y - 100 },
+                { type: ct.type, title: ct.type === 'chat' ? undefined : `${ct.label} ${Object.keys(session.nodes).length + 1}` }
+              );
+              setPaneMenu(null);
+            }}
+          >
+            + {ct.label}
+          </button>
+        ))}
       </div>
     )}
 

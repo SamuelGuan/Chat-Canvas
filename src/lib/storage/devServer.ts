@@ -37,6 +37,46 @@ export class DevServerAdapter implements StorageAdapter {
     return Array.isArray(res) ? (res as string[]) : [];
   }
 
+  async writeBinary(relPath: string, data: ArrayBuffer): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/binary?p=${encodeURIComponent(relPath)}`, {
+      method: 'PUT',
+      body: data,
+    });
+    if (!res.ok) {
+      const payload: any = await res.json().catch(() => null);
+      throw new StoreError(
+        payload?.error ?? `写入二进制失败 (HTTP ${res.status})`,
+        payload?.code ?? `HTTP_${res.status}`,
+      );
+    }
+  }
+
+  async readBinary(relPath: string): Promise<ArrayBuffer | null> {
+    const res = await fetch(`${this.baseUrl}/binary?p=${encodeURIComponent(relPath)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const payload: any = await res.json().catch(() => null);
+      throw new StoreError(
+        payload?.error ?? `读取二进制失败 (HTTP ${res.status})`,
+        payload?.code ?? `HTTP_${res.status}`,
+      );
+    }
+    return res.arrayBuffer();
+  }
+
+  async exists(relPath: string): Promise<boolean> {
+    const res = await fetch(`${this.baseUrl}/exists?p=${encodeURIComponent(relPath)}`);
+    if (!res.ok) {
+      const payload: any = await res.json().catch(() => null);
+      throw new StoreError(
+        payload?.error ?? `exists 查询失败 (HTTP ${res.status})`,
+        payload?.code ?? `HTTP_${res.status}`,
+      );
+    }
+    const result = await res.json();
+    return (result as any)?.exists === true;
+  }
+
   /**
    * 统一请求入口：404 → null（readJson 语义）；其余非 2xx 解析 { error, code } 后翻译为 throw
    *

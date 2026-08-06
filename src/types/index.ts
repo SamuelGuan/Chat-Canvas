@@ -29,7 +29,7 @@ export interface ChatMessage {
 
 export interface GraphNode {
   id: string;
-  type: 'chat';
+  type: 'chat' | 'note' | 'pdf';     // v0.5: 扩展联合 (v0.6+: + 'agent')
   position: { x: number; y: number };
   title: string;
   model: string;
@@ -37,11 +37,19 @@ export interface GraphNode {
   createdAt: number;
   updatedAt: number;
   messages: ChatMessage[];
-  systemPrompt?: string;      // ★ D-06: 卡片级 system prompt (覆盖全局)
-  isAssemble?: boolean;       // ★ 拼装模式: 已选中加入导出列表
-  forkLabel?: string;         // ★ 消息分叉/术语追问时的来源标签
-  width?: number;             // ★ 卡片宽度 (px)
-  height?: number;            // ★ 卡片高度 (px)
+  systemPrompt?: string;      // D-06: 卡片级 system prompt (覆盖全局)
+  isAssemble?: boolean;       // 拼装模式: 已选中加入导出列表
+  forkLabel?: string;         // 消息分叉/术语追问时的来源标签
+  width?: number;             // 卡片宽度 (px)
+  height?: number;            // 卡片高度 (px)
+
+  // note 专属 (v0.5 新增)
+  markdownContent?: string;
+
+  // pdf 专属 (v0.5 新增)
+  pdfPath?: string;
+  pdfCurrentPage?: number;
+  pdfTotalPages?: number;
 }
 
 /* ===== 图边 ===== */

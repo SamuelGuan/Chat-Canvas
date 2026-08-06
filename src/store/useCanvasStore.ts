@@ -15,8 +15,10 @@ import { create } from 'zustand';
 import { nanoid } from 'nanoid';
 import { GraphNode, GraphEdge, SessionData, ProjectData, CanvasViewport, DEFAULT_PROJECT_ID, IMPORT_PROJECT_ID, type SessionMeta } from '@/types';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import { useChatStore } from '@/store/useChatStore';
 import { canonicalStringify, cloneSession, sessionContentHash } from '@/lib/utils';
 import type { StorageAdapter } from '@/lib/storage/protocol';
+import { getStorageAdapter } from '@/lib/storage/adapter';
 import { projectDir } from '@/lib/storage/paths';
 import { reconcileData } from '@/lib/storage/consistency';
 import { RootManager } from '@/store/rootManager';
@@ -24,6 +26,7 @@ import { ProjectManager } from '@/store/projectManager';
 import { SessionRuntime } from '@/store/sessionRuntime';
 import { bootstrapCanvasStore, makeSessionStub } from '@/store/bootstrap';
 import { makeProject, makeSession } from '@/store/factories';
+import { cardRegistry } from '@/cards/registry';
 
 /* ===== 三级 Manager 实例（非响应式，bootstrap 后可用） ===== */
 let storage: StorageAdapter | null = null;
@@ -100,7 +103,7 @@ interface CanvasState {
   resolveExternalConflict: (reload: boolean) => void;
 
   // ===== 节点 =====
-  addNode: (position: { x: number; y: number }, title?: string, model?: string) => string;
+  addNode: (position: { x: number; y: number }, opts?: { type?: string; title?: string; model?: string }) => string;
   updateNode: (id: string, patch: Partial<GraphNode>) => void;
   deleteNode: (id: string) => void;
   duplicateNode: (id: string, offsetX?: number, offsetY?: number) => string | null;
@@ -285,18 +288,27 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
     // -------------------- 节点 --------------------
 
-    addNode: (position, title, model) => {
+    addNode: (position, opts) => {
       const rt = mustRuntime();
       const id = nanoid(8);
       const now = Date.now();
+      const nodeType = opts?.type ?? 'chat';
+      const plugin = cardRegistry.get(nodeType);
+      if (!plugin) {
+        console.warn(`[useCanvasStore] 未知卡片类型 "${nodeType}"，回退为 chat`);
+      }
+      const defaults = plugin?.defaults ?? {};
       const node: GraphNode = {
-        id, type: 'chat', position,
-        title: title ?? `对话 ${Object.keys(rt.session.nodes).length + 1}`,
-        model: model ?? useSettingsStore.getState().defaultModel,
-        collapsed: false,
+        id,
+        type: nodeType as GraphNode['type'],
+        position,
+        title: opts?.title ?? defaults.title ?? `节点 ${Object.keys(rt.session.nodes).length + 1}`,
+        model: opts?.model ?? defaults.model ?? useSettingsStore.getState().defaultModel,
+        collapsed: defaults.collapsed ?? false,
         messages: [],
         createdAt: now,
         updatedAt: now,
+        ...defaults,
       };
       const session = cloneSession(rt.session);
       session.nodes[id] = node;
@@ -319,6 +331,29 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     deleteNode: (id) => {
       const rt = mustRuntime();
       const session = cloneSession(rt.session);
+      const node = session.nodes[id];
+      if (!node) return;
+
+      // 1. 清理 chatStore 的 streaming 状态
+      const chatState = useChatStore.getState();
+      if (chatState.streamingNodeId === id) {
+        chatState.finishStreaming(id, '');
+        useChatStore.setState({ streamingNodeId: null, streamingText: '' });
+      }
+
+      // 2. 清理 PDF 二进制文件（如无其他节点引用）
+      if (node.type === 'pdf' && (node as any).pdfPath) {
+        const pdfPath = (node as any).pdfPath as string;
+        const otherRefs = Object.values(session.nodes).some(
+          (n: any) => n.id !== id && n.pdfPath === pdfPath,
+        );
+        if (!otherRefs) {
+          getStorageAdapter().then((adapter) => {
+            adapter.delete(pdfPath).catch(() => {});
+          });
+        }
+      }
+
       delete session.nodes[id];
       for (const eid of Object.keys(session.edges)) {
         const e = session.edges[eid];

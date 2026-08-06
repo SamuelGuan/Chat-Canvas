@@ -17,6 +17,9 @@ const electronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.STORE_WRITE, relPath, data),
   storeDelete: (relPath: string) => ipcRenderer.invoke(IPC_CHANNELS.STORE_DELETE, relPath),
   storeList: (dirRelPath: string) => ipcRenderer.invoke(IPC_CHANNELS.STORE_LIST, dirRelPath),
+  storeReadBinary: (relPath: string) => ipcRenderer.invoke(IPC_CHANNELS.STORE_READ_BINARY, relPath),
+  storeWriteBinary: (relPath: string, data: ArrayBuffer) => ipcRenderer.invoke(IPC_CHANNELS.STORE_WRITE_BINARY, relPath, data),
+  storeExists: (relPath: string) => ipcRenderer.invoke(IPC_CHANNELS.STORE_EXISTS, relPath),
 
   // 数据目录外部变更通知（文件监听触发）
   onStoreChanged: (callback: () => void) => {
