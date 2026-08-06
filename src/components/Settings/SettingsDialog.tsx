@@ -33,9 +33,9 @@ export function SettingsDialog({ open, onClose }: Props) {
   if (!open) return null;
   const activeProvider = settings.providers.find((p) => p.id === activeTab);
 
-  function handleExport() {
+  async function handleExport() {
     const isAll = exportTarget === '__all__';
-    const json = isAll ? exportSessionJson() : exportSessionJson(exportTarget);
+    const json = isAll ? await exportSessionJson() : await exportSessionJson(exportTarget);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url;

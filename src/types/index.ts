@@ -97,6 +97,13 @@ export interface RootIndex {
   projects: ProjectMeta[];
 }
 
+/** project.json 内 Session 列表元信息（懒加载支撑：侧边栏列表无需读 session 文件） */
+export interface SessionMeta {
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /** projects/<pid>/project.json（PBR）：项目内 Session 注册表 + activeSessionId */
 export interface ProjectFile {
   version: number;
@@ -104,6 +111,8 @@ export interface ProjectFile {
   name: string;
   activeSessionId: string | null;
   sessionIds: string[];
+  /** Session 元信息缓存（键 = sessionId）；可选，缺失/过期由一致性校验重建 */
+  sessionMeta?: Record<string, SessionMeta>;
 }
 
 /** projects/<pid>/sessions/<sid>.json（分区数据区）：SessionData + 文件版本 */

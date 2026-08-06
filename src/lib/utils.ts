@@ -86,7 +86,7 @@ export async function sha256Hex(text: string): Promise<string> {
  * :param value: 任意可序列化值
  * :return: 键序归一化后的 JSON 字符串
  */
-function canonicalStringify(value: unknown): string {
+export function canonicalStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalStringify).join(',')}]`;
   if (value && typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>)

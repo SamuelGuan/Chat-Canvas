@@ -4,18 +4,40 @@ import { resolve } from 'path';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { PROTOCOL_VERSION, STORE_API_BASE, StoreError } from './src/lib/storage/protocol';
 import { deletePath, ensureDataRoot, listDir, readJsonFile, resolveDataRoot, writeJsonFile } from './scripts/storeCore';
+import { startStoreWatcher } from './scripts/storeWatcher';
 
 /**
  * 《消息服务协议 v1》Vite dev server 中间件 —— 协议的首个实现（docs/store-protocol.md）。
  * 浏览器页面处于沙箱无法直接读写本地文件，由 dev server 用 Node fs 代劳，
  * 页面侧只发同源相对路径请求；未来 Python FastAPI 照同一契约实现，前端零改动直连。
- * 中间件只存在于 dev server，vite build 产物不含 —— 静态部署自动降级 LocalStorageAdapter。
+ * 中间件只存在于 dev server，vite build 产物不含 —— 静态部署无文件存储后端（不支持 localStorage 兜底）。
+ * 附带数据目录文件监听：外部进程改文件 → 一致性校验收敛 → SSE 推送渲染层联动。
  */
+
+/** SSE 客户端集合（GET /events 长连接） */
+const sseClients = new Set<ServerResponse>();
+
+/** 向全部 SSE 客户端广播 store-changed 事件 */
+function broadcastStoreChanged(paths: string[]): void {
+  const payload = `data: ${JSON.stringify({ type: 'store-changed', paths })}\n\n`;
+  for (const res of sseClients) {
+    try {
+      res.write(payload);
+    } catch {
+      sseClients.delete(res);
+    }
+  }
+}
+
 function storeApiPlugin(): Plugin {
   return {
     name: 'chat-canvas-store-api',
     configureServer(server) {
       const dataRoot = resolveDataRoot(process.cwd());
+      ensureDataRoot(dataRoot);
+      // 文件监听：外部变更 → 收敛 → 推送（自写事件在 watcher 内过滤）
+      startStoreWatcher(dataRoot, broadcastStoreChanged);
+      server.httpServer?.once('close', () => { /* watcher 随进程退出 */ });
       server.middlewares.use(STORE_API_BASE, (req, res) => {
         handleStoreRequest(dataRoot, req, res).catch((e) => sendError(res, e));
       });
@@ -35,12 +57,20 @@ async function handleStoreRequest(dataRoot: string, req: IncomingMessage, res: S
     return sendJson(res, 200, {
       kind: 'dev-server',
       version: PROTOCOL_VERSION,
-      capabilities: ['readJson', 'writeJson', 'delete', 'list'],
+      capabilities: ['readJson', 'writeJson', 'delete', 'list', 'events'],
     });
   }
-  // SSE 服务端推送：协议预留占位，本期不实现
+  // SSE 服务端推送：外部变更通知（文件监听触发）
   if (url.pathname === '/events' && method === 'GET') {
-    return sendJson(res, 501, { error: 'events 推送通道为协议预留，当前版本未实现', code: 'NOT_IMPLEMENTED' });
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    res.write(': connected\n\n');
+    sseClients.add(res);
+    req.on('close', () => sseClients.delete(res));
+    return; // 长连接不 end
   }
   if (url.pathname === '/file' && method === 'GET') {
     const data = await readJsonFile(dataRoot, rel);

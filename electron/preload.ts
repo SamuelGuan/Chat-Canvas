@@ -18,6 +18,11 @@ const electronAPI = {
   storeDelete: (relPath: string) => ipcRenderer.invoke(IPC_CHANNELS.STORE_DELETE, relPath),
   storeList: (dirRelPath: string) => ipcRenderer.invoke(IPC_CHANNELS.STORE_LIST, dirRelPath),
 
+  // 数据目录外部变更通知（文件监听触发）
+  onStoreChanged: (callback: () => void) => {
+    ipcRenderer.on(IPC_CHANNELS.STORE_CHANGED, () => callback());
+  },
+
   // 菜单事件监听
   onMenuNewCard: (callback: () => void) => {
     ipcRenderer.on(IPC_CHANNELS.MENU_NEW_CARD, () => callback());

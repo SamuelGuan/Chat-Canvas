@@ -24,6 +24,47 @@ import {
 
 export type MigrationResult = 'migrated' | 'skipped' | 'failed';
 
+/** v0.4 早期 localStorage 兜底适配器模拟文件布局的 key 前缀（一次性迁移源） */
+const SIMULATED_PREFIX = 'chat-canvas-data:';
+
+/**
+ * 一次性迁移：localStorage 兜底期遗留的模拟文件（`chat-canvas-data:*` keys）→ 真实文件布局。
+ * 触发场景：存储适配器由 localstorage 兜底升级为 fs（如 Electron preload 修复后），
+ * 磁盘数据目录为空而 localStorage 内已有模拟文件数据。
+ * 流程：逐 key 拷贝写入 → index.json 回读校验 → 删除旧 key；失败保留原 key 下次重试。
+ *
+ * :param adapter: 当前选中的存储适配器
+ * :return: 迁移结果
+ */
+export async function migrateSimulatedLocalStorage(adapter: StorageAdapter): Promise<MigrationResult> {
+  const entries: [string, string][] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(SIMULATED_PREFIX)) {
+        const raw = localStorage.getItem(key);
+        if (raw !== null) entries.push([key, raw]);
+      }
+    }
+  } catch {
+    return 'skipped'; // localStorage 不可用，按无旧数据处理
+  }
+  if (entries.length === 0) return 'skipped';
+  // 磁盘已有新格式数据时不迁移，避免覆盖
+  if ((await adapter.readJson('index.json')) !== null) return 'skipped';
+
+  try {
+    for (const [key, raw] of entries) {
+      await adapter.writeJson(key.slice(SIMULATED_PREFIX.length), JSON.parse(raw));
+    }
+    if ((await adapter.readJson('index.json')) === null) throw new Error('index.json 回读为空');
+    for (const [key] of entries) localStorage.removeItem(key);
+    return 'migrated';
+  } catch {
+    return 'failed'; // 保留旧 key 不动，下次启动重试
+  }
+}
+
 /**
  * 执行一次性迁移（不满足触发条件时返回 'skipped'，失败时返回 'failed' 并保留旧 key）
  *
@@ -97,15 +138,16 @@ export async function splitStateBlobToFiles(adapter: StorageAdapter): Promise<bo
 
   // 1) 原 blob 原样硬备份
   await adapter.writeJson('state.blob-backup.json', blob);
-  // 2) 项目：project.json（sessionIds 从 sessions 字典归纳）
+  // 2) 项目：project.json（sessionIds 从 sessions 字典归纳；sessionMeta 顺带缓存，支撑懒加载）
   for (const p of Object.values(projects)) {
-    const sessionIds = Object.values(sessions).filter((s) => s.projectId === p.id).map((s) => s.id);
+    const inProject = Object.values(sessions).filter((s) => s.projectId === p.id);
     const file: ProjectFile = {
       version: STORE_FILE_VERSION,
       id: p.id,
       name: p.name,
       activeSessionId: p.id === activeProjectId ? activeSessionId ?? null : null,
-      sessionIds,
+      sessionIds: inProject.map((s) => s.id),
+      sessionMeta: Object.fromEntries(inProject.map((s) => [s.id, { name: s.name, createdAt: s.createdAt, updatedAt: s.updatedAt }])),
     };
     await adapter.writeJson(projectFilePath(p.id), file);
   }

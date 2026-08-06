@@ -204,7 +204,7 @@ function CanvasInner() {
         if (e.key === 'c' && !e.shiftKey && selectedNodeId) { e.preventDefault(); setCopiedNodeId(selectedNodeId); setToastMsg('已复制卡片'); }
         if (e.key === 'v' && !e.shiftKey && copiedNodeId) { e.preventDefault(); const pos = screenToFlowPosition({ x: mousePosRef.current.x, y: mousePosRef.current.y }); duplicateNode(copiedNodeId, pos.x - 250, pos.y - 100); }
         if (e.key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
-        if (e.key === 's') { e.preventDefault(); const json = useCanvasStore.getState().exportSessionJson(); const blob = new Blob([json], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `chat-canvas-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url); setToastMsg('已导出全部 Session JSON'); }
+        if (e.key === 's') { e.preventDefault(); void (async () => { const json = await useCanvasStore.getState().exportSessionJson(); const blob = new Blob([json], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `chat-canvas-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url); setToastMsg('已导出全部 Session JSON'); })(); }
       }
     }
     window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown);

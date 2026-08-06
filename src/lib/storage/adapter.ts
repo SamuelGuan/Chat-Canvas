@@ -1,13 +1,13 @@
 /**
  * src/lib/storage/adapter.ts
  * StorageAdapter 运行时选择：按能力描述探测，结果全局缓存。
- * 优先级：远端消息服务（未来 Python sidecar）→ Electron IPC → dev 中间件 → localStorage 兜底。
+ * 优先级：远端消息服务（未来 Python sidecar）→ Electron IPC → dev 中间件。
+ * 注意：不支持 localStorage 兜底 —— 「项目 = 磁盘文件夹」是硬设计，无文件存储后端时直接抛错。
  */
 import { probeCaps } from './probe';
-import type { StorageAdapter } from './protocol';
+import { StoreError, type StorageAdapter } from './protocol';
 import { DevServerAdapter } from './devServer';
 import { ElectronFsAdapter } from './electronFs';
-import { LocalStorageAdapter } from './localStorage';
 import { isElectronEnv } from '@/hooks/useElectron';
 
 export type { StorageAdapter, StoreHealth } from './protocol';
@@ -37,10 +37,13 @@ async function selectAdapter(): Promise<StorageAdapter> {
   if (isElectronEnv() && typeof window.electronAPI?.storeRead === 'function') {
     return new ElectronFsAdapter();
   }
-  // 3) 浏览器 dev：探测 Vite 中间件（vite preview / 静态部署时不存在 → 降级）
+  // 3) 浏览器 dev：探测 Vite 中间件
   if (await probeCaps()) {
     return new DevServerAdapter();
   }
-  // 4) 兜底：localStorage（静态构建，兼作旧数据迁移源）
-  return new LocalStorageAdapter();
+  // 无文件存储后端（如静态部署的纯浏览器环境）：抛错，由 bootstrap 捕获回退空画布
+  throw new StoreError(
+    '未找到可用的文件存储后端（远端服务 / Electron IPC / dev 中间件均不可用）',
+    'ENOBACKEND',
+  );
 }

@@ -13,21 +13,24 @@
  */
 import { create } from 'zustand';
 import { nanoid } from 'nanoid';
-import { GraphNode, GraphEdge, SessionData, ProjectData, CanvasViewport, DEFAULT_PROJECT_ID, IMPORT_PROJECT_ID } from '@/types';
+import { GraphNode, GraphEdge, SessionData, ProjectData, CanvasViewport, DEFAULT_PROJECT_ID, IMPORT_PROJECT_ID, type SessionMeta } from '@/types';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { cloneSession, sessionContentHash } from '@/lib/utils';
+import { canonicalStringify, cloneSession, sessionContentHash } from '@/lib/utils';
 import type { StorageAdapter } from '@/lib/storage/protocol';
 import { projectDir } from '@/lib/storage/paths';
+import { reconcileData } from '@/lib/storage/consistency';
 import { RootManager } from '@/store/rootManager';
 import { ProjectManager } from '@/store/projectManager';
 import { SessionRuntime } from '@/store/sessionRuntime';
-import { bootstrapCanvasStore } from '@/store/bootstrap';
+import { bootstrapCanvasStore, makeSessionStub } from '@/store/bootstrap';
 import { makeProject, makeSession } from '@/store/factories';
 
 /* ===== 三级 Manager 实例（非响应式，bootstrap 后可用） ===== */
 let storage: StorageAdapter | null = null;
 let root: RootManager | null = null;
 let runtime: SessionRuntime | null = null;
+/** 懒加载 stub 标记：字典中这些 id 的内容（nodes/edges/messages）尚未读盘 */
+let stubIds = new Set<string>();
 
 function mustStorage(): StorageAdapter {
   if (!storage) throw new Error('存储层未初始化（bootstrap 未完成）');
@@ -48,6 +51,11 @@ function bg(task: () => Promise<unknown>): void {
   bgQueue = bgQueue.then(async () => { await task(); }).catch((e) => console.error('[store] 后台落盘失败', e));
 }
 
+/** SessionData → project.json 元信息缓存 */
+function metaOf(s: SessionData): SessionMeta {
+  return { name: s.name, createdAt: s.createdAt, updatedAt: s.updatedAt };
+}
+
 /** 装载项目 Manager（不存在则按 state.projects 元数据创建） */
 async function ensureProjectManager(pid: string): Promise<ProjectManager> {
   const pm = await ProjectManager.load(mustStorage(), pid);
@@ -56,18 +64,40 @@ async function ensureProjectManager(pid: string): Promise<ProjectManager> {
   return ProjectManager.create(mustStorage(), meta);
 }
 
+/**
+ * 按需装载 Session 完整内容（懒加载）：stub → 读盘替换字典条目；
+ * 已装载直接返回；文件缺失返回 null（由一致性校验兜底剔除登记）。
+ */
+async function loadFullSession(sid: string): Promise<SessionData | null> {
+  const stub = useCanvasStore.getState().sessions[sid];
+  if (!stub) return null;
+  if (!stubIds.has(sid)) return stub;
+  const pm = await ProjectManager.load(mustStorage(), stub.projectId);
+  const full = (await pm?.readSession(sid)) ?? null;
+  if (!full) return null;
+  stubIds.delete(sid);
+  useCanvasStore.setState((prev) => ({ sessions: { ...prev.sessions, [sid]: full } }));
+  return full;
+}
+
 interface CanvasState {
   session: SessionData;
-  sessions: Record<string, SessionData>;    // ★ 非激活 Session 字典（磁盘权威副本，不含激活 Session）
+  sessions: Record<string, SessionData>;    // ★ 非激活 Session 字典（懒加载 stub / 磁盘权威副本，不含激活 Session）
   activeSessionId: string;
   projects: Record<string, ProjectData>;
   activeProjectId: string;
   selectedNodeId: string | null;
   assembleMode: boolean;
   assembleNodeIds: string[];
+  /** Q6：文件监听发现激活 Session 被外部修改/删除时的待确认冲突 */
+  externalConflict: { sessionId: string; kind: 'modified' | 'deleted' } | null;
 
   // ===== 启动 =====
   bootstrap: () => Promise<void>;
+
+  // ===== 外部变更联动 =====
+  reconvergeFromDisk: () => Promise<void>;
+  resolveExternalConflict: (reload: boolean) => void;
 
   // ===== 节点 =====
   addNode: (position: { x: number; y: number }, title?: string, model?: string) => string;
@@ -95,7 +125,8 @@ interface CanvasState {
   renameSession: (id: string, name: string) => void;
   deleteSession: (id: string) => void;
   duplicateSession: (id: string) => string;
-  exportSessionJson: (sessionId?: string) => string;
+  moveSession: (id: string, targetProjectId: string) => void;
+  exportSessionJson: (sessionId?: string) => Promise<string>;
   importSessions: (data: unknown) => Promise<{ imported: number; skipped: number }>;
 
   // ===== Project =====
@@ -116,16 +147,29 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   const importProject = makeProject('导入的 Sessions', IMPORT_PROJECT_ID, true);
   const initSession = makeSession(initProject.id);
 
-  /** 卸载当前 runtime：先落盘再丢弃（切换 Session/项目时的统一步骤） */
+  /** 卸载当前 runtime：先落盘（并刷新元信息缓存）再丢弃（切换 Session/项目时的统一步骤） */
   const unloadRuntime = (): SessionData => {
     const old = mustRuntime();
-    bg(() => old.flush());
+    const oldSession = old.session;
+    bg(async () => {
+      await old.flush();
+      const pm = await ProjectManager.load(mustStorage(), oldSession.projectId);
+      await pm?.updateSessionMeta(oldSession.id, metaOf(oldSession));
+    });
     old.dispose();
-    return old.session;
+    return oldSession;
   };
 
-  /** 换装激活 Session：旧实例落盘卸载，新实例驻留，字典只留非激活 Session */
+  /** 换装激活 Session：旧实例落盘卸载，新实例驻留，字典只留非激活 Session（stub 先读盘再换装） */
   const activateSession = (target: SessionData, extraSessions: Record<string, SessionData> = {}) => {
+    if (stubIds.has(target.id)) {
+      // 懒加载：stub 先读盘，完成后重走换装
+      void (async () => {
+        const full = await loadFullSession(target.id);
+        if (full) activateSession(full, extraSessions);
+      })();
+      return;
+    }
     const oldSession = unloadRuntime();
     const rt = new SessionRuntime(mustStorage(), cloneSession(target));
     runtime = rt;
@@ -151,6 +195,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     selectedNodeId: null,
     assembleMode: false,
     assembleNodeIds: [],
+    externalConflict: null,
 
     // -------------------- 启动 --------------------
 
@@ -159,6 +204,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       storage = result.storage;
       root = result.root;
       runtime = result.runtime;
+      stubIds = new Set(result.stubIds);
       set({
         session: result.active,
         sessions: result.sessions,
@@ -166,7 +212,75 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         projects: result.projects,
         activeProjectId: result.activeProjectId,
         selectedNodeId: null,
+        externalConflict: null,
       });
+    },
+
+    // -------------------- 外部变更联动 --------------------
+
+    reconvergeFromDisk: async () => {
+      if (!storage || !runtime) return;
+      // 幂等校验（watcher 侧已跑过；此处兜底覆盖 CLI 直改后手动同步等场景）
+      await reconcileData(mustStorage());
+      const freshRoot = await RootManager.load(mustStorage());
+      root = freshRoot;
+      // 非激活 Session 全部回退为 stub（磁盘权威；已装载副本无写者，丢弃无损失）
+      const sessions: Record<string, SessionData> = {};
+      const freshStubIds = new Set<string>();
+      const activeId = get().session.id;
+      for (const pid of freshRoot.projectIds) {
+        const pm = await ProjectManager.load(mustStorage(), pid);
+        if (!pm) continue;
+        for (const sid of pm.sessionIds) {
+          if (sid === activeId) continue;
+          sessions[sid] = makeSessionStub(sid, pid, pm.getSessionMeta(sid));
+          freshStubIds.add(sid);
+        }
+      }
+      stubIds = freshStubIds;
+      // 激活 Session 与磁盘比对 → Q6 冲突确认（外部修改提示，不自动 reload）
+      const rt = mustRuntime();
+      const pm = await ProjectManager.load(mustStorage(), rt.session.projectId);
+      const disk = (await pm?.readSession(rt.session.id)) ?? null;
+      let conflict = get().externalConflict;
+      if (!disk) {
+        conflict = { sessionId: rt.session.id, kind: 'deleted' };
+      } else if (canonicalStringify(disk) !== canonicalStringify(rt.session)) {
+        conflict = { sessionId: rt.session.id, kind: 'modified' };
+      }
+      set({
+        projects: freshRoot.projects,
+        sessions,
+        activeProjectId: freshRoot.activeProjectId,
+        externalConflict: conflict,
+      });
+    },
+
+    resolveExternalConflict: (reload) => {
+      const c = get().externalConflict;
+      if (!c) return;
+      set({ externalConflict: null });
+      if (reload && c.kind === 'modified') {
+        // 用户选择磁盘为准：读文件换装 runtime，未落盘编辑被覆盖
+        void (async () => {
+          const rt = mustRuntime();
+          const pm = await ProjectManager.load(mustStorage(), rt.session.projectId);
+          const full = (await pm?.readSession(c.sessionId)) ?? null;
+          if (!full) return;
+          const fresh = new SessionRuntime(mustStorage(), full);
+          mustRuntime().dispose();
+          runtime = fresh;
+          set({ session: full, selectedNodeId: null });
+        })();
+      } else {
+        // 用户选择内存为准（或文件已被外部删除）：立即落盘覆盖/重建
+        bg(async () => {
+          const rt = mustRuntime();
+          await rt.flush();
+          const pm = await ensureProjectManager(rt.session.projectId);
+          await pm.registerSession(rt.session.id, true, metaOf(rt.session));
+        });
+      }
     },
 
     // -------------------- 节点 --------------------
@@ -309,7 +423,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       bg(async () => {
         const pm = await ensureProjectManager(pid);
         await pm.writeSession(session);
-        await pm.registerSession(session.id, true);
+        await pm.registerSession(session.id, true, metaOf(session));
       });
     },
 
@@ -359,7 +473,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       bg(async () => {
         const pm = await ensureProjectManager(pid);
         await pm.writeSession(session);
-        await pm.registerSession(session.id, true);
+        await pm.registerSession(session.id, true, metaOf(session));
         if (pid !== s.activeProjectId) await mustRoot().setActiveProject(pid);
       });
       return session.id;
@@ -371,6 +485,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         const rt = mustRuntime();
         rt.commit({ ...rt.session, name }, { history: false, immediate: true });
         set({ session: rt.session });
+        bg(async () => {
+          const pm = await ensureProjectManager(rt.session.projectId);
+          await pm.updateSessionMeta(id, metaOf(rt.session));
+        });
         return;
       }
       const target = s.sessions[id];
@@ -378,8 +496,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const renamed = { ...target, name };
       set({ sessions: { ...s.sessions, [id]: renamed } });
       bg(async () => {
-        const pm = await ensureProjectManager(target.projectId);
-        await pm.writeSession(renamed);
+        // stub 需先读盘，避免用空内容覆盖真实文件
+        const full = (await loadFullSession(id)) ?? target;
+        const pm = await ensureProjectManager(full.projectId);
+        await pm.writeSession({ ...full, name });
+        await pm.updateSessionMeta(id, { name, createdAt: full.createdAt, updatedAt: full.updatedAt });
       });
     },
 
@@ -411,7 +532,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         bg(async () => {
           const pm = await ensureProjectManager(s.activeProjectId);
           await pm.writeSession(fresh);
-          await pm.registerSession(fresh.id, true);
+          await pm.registerSession(fresh.id, true, metaOf(fresh));
         });
         return;
       }
@@ -429,24 +550,82 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
     duplicateSession: (id) => {
       const s = get();
-      // 激活态取 session（runtime 权威），非激活态取字典（磁盘权威副本），均不会过期
+      // 激活态取 session（runtime 权威），非激活态取字典（stub 先读盘），均不会过期
       const src = id === s.session.id ? s.session : s.sessions[id];
       if (!src) return '';
       const newId = nanoid(8);
       const now = Date.now();
-      const copy = cloneSession(src);
-      copy.id = newId;
-      copy.name = `${src.name} (副本)`;
-      // 副本按创建时间倒序应排在顶部，时间戳需刷新
-      copy.createdAt = now;
-      copy.updatedAt = now;
-      set({ sessions: { ...s.sessions, [newId]: copy } });
-      bg(async () => {
-        const pm = await ensureProjectManager(copy.projectId);
-        await pm.writeSession(copy);
-        await pm.registerSession(newId);
-      });
+      const finish = (full: SessionData) => {
+        const copy = cloneSession(full);
+        copy.id = newId;
+        copy.name = `${full.name} (副本)`;
+        // 副本按创建时间倒序应排在顶部，时间戳需刷新
+        copy.createdAt = now;
+        copy.updatedAt = now;
+        stubIds.delete(newId);
+        set((prev) => ({ sessions: { ...prev.sessions, [newId]: copy } }));
+        bg(async () => {
+          const pm = await ensureProjectManager(copy.projectId);
+          await pm.writeSession(copy);
+          await pm.registerSession(newId, false, metaOf(copy));
+        });
+      };
+      if (id === s.session.id || !stubIds.has(id)) {
+        finish(src);
+      } else {
+        // stub 源：读盘完成后补入字典（一个本地文件读的延迟，避免占位空内容被误切换）
+        void (async () => {
+          const full = await loadFullSession(id);
+          if (full) finish(full);
+        })();
+      }
       return newId;
+    },
+
+    /**
+     * 移动 Session 到其他项目：文件物理迁移（写目标项目 → 源项目删文件注销登记）。
+     * 激活 Session 走 runtime 权威状态并跟随切换 activeProjectId；非激活 Session（stub 先读盘）后台迁移。
+     */
+    moveSession: (id, targetProjectId) => {
+      const s = get();
+      if (!s.projects[targetProjectId]) return;
+
+      if (id === s.session.id) {
+        const rt = mustRuntime();
+        const sourcePid = rt.session.projectId;
+        if (sourcePid === targetProjectId) return;
+        rt.commit({ ...rt.session, projectId: targetProjectId }, { history: false, immediate: true });
+        set({ session: rt.session, activeProjectId: targetProjectId });
+        bg(async () => {
+          const srcPm = await ProjectManager.load(mustStorage(), sourcePid);
+          if (srcPm) {
+            await srcPm.unregisterSession(id);
+            await srcPm.deleteSessionFile(id);
+          }
+          const dstPm = await ensureProjectManager(targetProjectId);
+          await dstPm.registerSession(id, true, metaOf(rt.session));
+          await mustRoot().setActiveProject(targetProjectId);
+        });
+        return;
+      }
+
+      const entry = s.sessions[id];
+      if (!entry || entry.projectId === targetProjectId) return;
+      const sourcePid = entry.projectId;
+      void (async () => {
+        const full = await loadFullSession(id);
+        if (!full) return;
+        const moved = { ...full, projectId: targetProjectId };
+        const srcPm = await ProjectManager.load(mustStorage(), sourcePid);
+        const dstPm = await ensureProjectManager(targetProjectId);
+        await dstPm.writeSession(moved);
+        await dstPm.registerSession(id, false, metaOf(moved));
+        if (srcPm) {
+          await srcPm.unregisterSession(id);
+          await srcPm.deleteSessionFile(id);
+        }
+        set((prev) => ({ sessions: { ...prev.sessions, [id]: moved } }));
+      })();
     },
 
     // -------------------- Project --------------------
@@ -550,17 +729,23 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           await mustRoot().setActiveProject(nextProject.id);
           const pm = await ensureProjectManager(nextProject.id);
           await pm.writeSession(fresh);
-          await pm.registerSession(fresh.id, true);
+          await pm.registerSession(fresh.id, true, metaOf(fresh));
         });
       }
     },
 
-    exportSessionJson: (sessionId) => {
+    exportSessionJson: async (sessionId) => {
       const s = get();
-      // 全量视图在导出时临时合成（只读，不是一致性补丁）
-      const sessions = { ...s.sessions, [s.session.id]: s.session };
       if (sessionId) {
-        return JSON.stringify(sessions[sessionId] ?? s.session, null, 2);
+        if (sessionId === s.session.id) return JSON.stringify(s.session, null, 2);
+        // 指定单个导出：stub 先读盘
+        const full = await loadFullSession(sessionId);
+        return JSON.stringify(full ?? s.sessions[sessionId] ?? s.session, null, 2);
+      }
+      // 完整备份：全量视图在导出时临时合成（只读，不是一致性补丁）；stub 逐个读盘
+      const sessions: Record<string, SessionData> = { [s.session.id]: s.session };
+      for (const [sid, stub] of Object.entries(get().sessions)) {
+        sessions[sid] = (await loadFullSession(sid)) ?? stub;
       }
       return JSON.stringify({ sessions, activeSessionId: s.activeSessionId }, null, 2);
     },
@@ -579,11 +764,12 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         throw new Error('无法识别的 Session 文件格式');
       }
 
-      // 现有 Session 内容哈希集合（激活 + 非激活，均权威）
+      // 现有 Session 内容哈希集合（激活 + 非激活均权威；stub 逐个读盘计算）
       const existingSessions: Record<string, SessionData> = { ...state.sessions, [state.session.id]: state.session };
       const existingHashes = new Set<string>();
-      for (const s of Object.values(existingSessions)) {
-        existingHashes.add(await sessionContentHash(s));
+      for (const [sid, sess] of Object.entries(existingSessions)) {
+        const full = sid === state.session.id ? sess : (await loadFullSession(sid)) ?? sess;
+        existingHashes.add(await sessionContentHash(full));
       }
 
       let imported = 0;
@@ -624,7 +810,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           const pm = await ensureProjectManager(IMPORT_PROJECT_ID);
           for (const sess of Object.values(toAdd)) {
             await pm.writeSession(sess);
-            await pm.registerSession(sess.id, sess.id === target?.id);
+            await pm.registerSession(sess.id, sess.id === target?.id, metaOf(sess));
           }
         });
       }

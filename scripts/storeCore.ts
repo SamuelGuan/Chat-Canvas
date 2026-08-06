@@ -46,6 +46,39 @@ function enqueue<T>(key: string, fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
+/* 本进程自身写入记录：文件监听据此过滤自写事件，避免收敛循环（外部进程写入无记录，正常触发） */
+const selfWrites = new Map<string, number>();
+const SELF_WRITE_WINDOW_MS = 2000;
+
+function markSelfWrite(abs: string): void {
+  selfWrites.set(abs, Date.now());
+  // 防泄漏：只留窗口期内的记录
+  if (selfWrites.size > 500) {
+    const cutoff = Date.now() - SELF_WRITE_WINDOW_MS;
+    for (const [p, t] of selfWrites) {
+      if (t < cutoff) selfWrites.delete(p);
+    }
+  }
+}
+
+/**
+ * 判断给定绝对路径的变更是否本进程自写（含目录前缀匹配，目录删除会带出子项事件）
+ *
+ * :param absPath: 变更文件绝对路径
+ * :param withinMs: 自写有效窗口（默认 2000ms）
+ */
+export function isSelfWrite(absPath: string, withinMs = SELF_WRITE_WINDOW_MS): boolean {
+  const now = Date.now();
+  for (const [p, t] of selfWrites) {
+    if (now - t > withinMs) {
+      selfWrites.delete(p);
+      continue;
+    }
+    if (absPath === p || absPath.startsWith(p + sep)) return true;
+  }
+  return false;
+}
+
 let gitInitTried = false;
 
 /**
@@ -61,12 +94,12 @@ export function ensureDataRoot(dataRoot: string): void {
   }
 }
 
-/** 读 JSON 文件；不存在（或目标是目录）返回 null，JSON 损坏抛 EPARSE */
+/** 读 JSON 文件；不存在（或目标是目录）返回 null，JSON 损坏抛 EPARSE（容错 UTF-8 BOM） */
 export async function readJsonFile(dataRoot: string, rel: string): Promise<unknown | null> {
   assertJsonFile(rel);
   const abs = resolveInside(dataRoot, rel);
   try {
-    return JSON.parse(await readFile(abs, 'utf-8'));
+    return JSON.parse((await readFile(abs, 'utf-8')).replace(/^﻿/, ''));
   } catch (e: any) {
     if (e?.code === 'ENOENT' || e?.code === 'EISDIR') return null;
     if (e instanceof SyntaxError) throw new StoreError(`JSON 解析失败: ${rel}`, 'EPARSE');
@@ -82,6 +115,7 @@ export async function writeJsonFile(dataRoot: string, rel: string, data: unknown
     await mkdir(dirname(abs), { recursive: true });
     const tmp = `${abs}.tmp-${process.pid}`;
     await writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
+    markSelfWrite(abs);
     await rename(tmp, abs);
   });
 }
@@ -91,6 +125,7 @@ export async function deletePath(dataRoot: string, rel: string): Promise<void> {
   const abs = resolveInside(dataRoot, rel);
   if (abs === dataRoot) throw new StoreError('禁止删除数据目录根', 'EINVAL');
   return enqueue(abs, async () => {
+    markSelfWrite(abs);
     await rm(abs, { recursive: true, force: true });
   });
 }

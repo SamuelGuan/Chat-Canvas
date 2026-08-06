@@ -12,6 +12,7 @@ export interface ElectronAPI {
   storeWrite: (relPath: string, data: unknown) => Promise<void>;
   storeDelete: (relPath: string) => Promise<void>;
   storeList: (dirRelPath: string) => Promise<string[]>;
+  onStoreChanged: (cb: () => void) => void;
   onMenuNewCard: (cb: () => void) => void;
   onMenuOpenSettings: (cb: () => void) => void;
   onMenuImport: (cb: () => void) => void;

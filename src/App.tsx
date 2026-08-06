@@ -10,6 +10,8 @@ import { SettingsDialog } from '@/components/Settings/SettingsDialog';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useCanvasStore } from '@/store/useCanvasStore';
 import { useElectron, secureGet } from '@/hooks/useElectron';
+import { getStorageAdapter } from '@/lib/storage/adapter';
+import { subscribeStoreEvents } from '@/lib/storage/events';
 import { SearchIcon, OutlineIcon, AssembleIcon, SettingsIcon } from '@/components/icons';
 import { cn } from '@/lib/utils';
 import { DEFAULT_PROJECT_ID } from '@/types';
@@ -188,6 +190,8 @@ export default function App() {
     | { kind: 'project'; id: string; name: string; blocked: boolean }
     | null
   >(null);
+  // 待移动的 Session（选择目标项目弹窗）
+  const [pendingMove, setPendingMove] = useState<{ id: string; name: string; fromPid: string } | null>(null);
   // 项目展开状态（未设置时默认展开当前项目）
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
 
@@ -207,6 +211,7 @@ export default function App() {
   const renameSession = useCanvasStore((s) => s.renameSession);
   const deleteSession = useCanvasStore((s) => s.deleteSession);
   const duplicateSession = useCanvasStore((s) => s.duplicateSession);
+  const moveSession = useCanvasStore((s) => s.moveSession);
   const projects = useCanvasStore((s) => s.projects);
   const activeProjectId = useCanvasStore((s) => s.activeProjectId);
   const createProject = useCanvasStore((s) => s.createProject);
@@ -217,6 +222,8 @@ export default function App() {
   const assembleMode = useCanvasStore((s) => s.assembleMode);
   const undo = useCanvasStore((s) => s.undo);
   const redo = useCanvasStore((s) => s.redo);
+  const externalConflict = useCanvasStore((s) => s.externalConflict);
+  const resolveExternalConflict = useCanvasStore((s) => s.resolveExternalConflict);
 
   const { isElectron } = useElectron();
   const activeProvider = providers.find((p) => p.id === activeProviderId);
@@ -270,15 +277,31 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  // 删除确认弹窗：Esc 取消
+  // 删除确认 / 移动弹窗：Esc 取消
   useEffect(() => {
-    if (!pendingDelete) return;
+    if (!pendingDelete && !pendingMove) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setPendingDelete(null);
+      if (e.key === 'Escape') { setPendingDelete(null); setPendingMove(null); }
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [pendingDelete]);
+  }, [pendingDelete, pendingMove]);
+
+  // v0.4：订阅数据目录外部变更（文件监听 → 一致性收敛 → SSE/IPC 推送 → 联动重载）
+  useEffect(() => {
+    let unsub = () => {};
+    void (async () => {
+      try {
+        const adapter = await getStorageAdapter();
+        unsub = subscribeStoreEvents(adapter, () => {
+          void useCanvasStore.getState().reconvergeFromDisk();
+        });
+      } catch {
+        // 无文件存储后端（静态部署）：无推送通道可订阅
+      }
+    })();
+    return () => unsub();
+  }, []);
 
   // Electron 菜单
   useEffect(() => {
@@ -304,10 +327,12 @@ export default function App() {
       input.click();
     });
     api.onMenuExport(() => {
-      const json = useCanvasStore.getState().exportSessionJson();
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `chat-canvas-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url);
+      void (async () => {
+        const json = await useCanvasStore.getState().exportSessionJson();
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `chat-canvas-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url);
+      })();
     });
     api.onMenuToggleTheme(() => setTheme(theme === 'dark' ? 'light' : 'dark'));
   }, [isElectron, addNode, theme, setTheme]);
@@ -489,6 +514,7 @@ export default function App() {
                         <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-0.5 bg-white dark:bg-zinc-800 px-1 rounded">
                           <button onClick={() => setEditingSessionId(s.id)} className="text-[9px] text-zinc-400 hover:text-zinc-600 px-0.5" title="改名">改</button>
                           <button onClick={() => duplicateSession(s.id)} className="text-[9px] text-zinc-400 hover:text-zinc-600 px-0.5" title="复制">复</button>
+                          <button onClick={() => setPendingMove({ id: s.id, name: s.name, fromPid: s.projectId ?? DEFAULT_PROJECT_ID })} className="text-[9px] text-zinc-400 hover:text-zinc-600 px-0.5" title="移动到其他项目">移</button>
                           <button onClick={() => setPendingDelete({ kind: 'session', id: s.id, name: s.name })} className="text-[9px] text-red-400 hover:text-red-600 px-0.5" title="删除">删</button>
                         </div>
                       </div>
@@ -559,6 +585,57 @@ export default function App() {
 
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {searchOpen && <SearchPanel onClose={() => setSearchOpen(false)} />}
+
+      {/* Q6：激活 Session 被外部修改/删除时的确认弹窗（不自动 reload，避免打断进行中的编辑） */}
+      {externalConflict && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
+          <div className="w-80 rounded-xl border bg-white border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700 shadow-xl p-4">
+            <div className="text-sm text-zinc-900 dark:text-zinc-100">
+              {externalConflict.kind === 'deleted'
+                ? '激活 Session 的文件已被外部删除。保留当前编辑将重新写回文件。'
+                : '激活 Session 已被外部修改。重新载入磁盘版本将覆盖当前未落盘的编辑。'}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => resolveExternalConflict(false)}
+                className="rounded px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700"
+              >保留当前编辑</button>
+              {externalConflict.kind === 'modified' && (
+                <button
+                  autoFocus
+                  onClick={() => resolveExternalConflict(true)}
+                  className="rounded px-3 py-1 text-xs bg-blue-500 text-white hover:bg-blue-600"
+                >重新载入</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 移动 Session：选择目标项目（排除当前所在项目） */}
+      {pendingMove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={() => setPendingMove(null)}>
+          <div className="w-72 rounded-xl border bg-white border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700 shadow-xl p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="text-sm text-zinc-900 dark:text-zinc-100">移动「{pendingMove.name}」到项目：</div>
+            <div className="mt-2 max-h-60 overflow-y-auto">
+              {sortedProjects.filter((p) => p.id !== pendingMove.fromPid).map((p) => (
+                <button
+                  key={p.id}
+                  autoFocus={p.id === sortedProjects.find((x) => x.id !== pendingMove.fromPid)?.id}
+                  onClick={() => { moveSession(pendingMove.id, p.id); setPendingMove(null); }}
+                  className="block w-full text-left rounded px-2 py-1.5 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                >{p.name}</button>
+              ))}
+              {sortedProjects.filter((p) => p.id !== pendingMove.fromPid).length === 0 && (
+                <div className="px-2 py-1.5 text-xs text-zinc-400">无其他项目可移动</div>
+              )}
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button onClick={() => setPendingMove(null)} className="rounded px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700">取消</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 删除确认弹窗（替代原生 confirm/alert，Electron 中不可靠） */}
       {pendingDelete && (

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { buildMenu } from './menu.js';
 import { IPC_CHANNELS } from './ipc-channels.js';
 import { deletePath, ensureDataRoot, listDir, readJsonFile, resolveDataRoot, writeJsonFile } from '../scripts/storeCore.js';
+import { startStoreWatcher } from '../scripts/storeWatcher.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 let mainWindow: BrowserWindow | null = null;
@@ -35,6 +36,14 @@ ipcMain.handle(IPC_CHANNELS.STORE_LIST, (_e, dirRelPath: string) => {
   return listDir(dataRoot, dirRelPath);
 });
 
+// 数据目录文件监听：外部进程改文件 → 一致性校验收敛 → 推送渲染层联动（自写事件在 watcher 内过滤）
+app.whenReady().then(() => {
+  ensureDataRoot(dataRoot);
+  startStoreWatcher(dataRoot, (paths) => {
+    mainWindow?.webContents.send(IPC_CHANNELS.STORE_CHANGED, paths);
+  });
+});
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -42,9 +51,11 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      // electron-vite 输出为 out/preload/preload.mjs；ESM preload 要求 sandbox: false（contextIsolation 保持开启）
+      preload: join(__dirname, '../preload/preload.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: false,
     },
     title: 'Chat Canvas',
   });

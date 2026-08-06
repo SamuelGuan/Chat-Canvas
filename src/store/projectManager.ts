@@ -12,6 +12,7 @@ import {
   type ProjectFile,
   type SessionData,
   type SessionFile,
+  type SessionMeta,
 } from '@/types';
 
 export class ProjectManager {
@@ -50,17 +51,39 @@ export class ProjectManager {
     return this.file.activeSessionId;
   }
 
-  /** 登记 Session（可选同时置为激活），立即写 project.json */
-  async registerSession(sid: string, makeActive = false): Promise<void> {
+  /** Session 元信息缓存（懒加载支撑；可能为空，由一致性校验重建） */
+  get sessionMetaMap(): Record<string, SessionMeta> {
+    return this.file.sessionMeta ?? {};
+  }
+
+  getSessionMeta(sid: string): SessionMeta | undefined {
+    return this.file.sessionMeta?.[sid];
+  }
+
+  /** 登记 Session（可选同时置为激活 / 写入元信息缓存），立即写 project.json */
+  async registerSession(sid: string, makeActive = false, meta?: SessionMeta): Promise<void> {
     if (!this.file.sessionIds.includes(sid)) this.file.sessionIds.push(sid);
     if (makeActive) this.file.activeSessionId = sid;
+    if (meta) {
+      this.file.sessionMeta ??= {};
+      this.file.sessionMeta[sid] = meta;
+    }
     await this.persist();
   }
 
-  /** 注销 Session（若为激活则清空 activeSessionId），立即写 project.json */
+  /** 注销 Session（若为激活则清空 activeSessionId，并移除元信息缓存），立即写 project.json */
   async unregisterSession(sid: string): Promise<void> {
     this.file.sessionIds = this.file.sessionIds.filter((x) => x !== sid);
     if (this.file.activeSessionId === sid) this.file.activeSessionId = null;
+    if (this.file.sessionMeta) delete this.file.sessionMeta[sid];
+    await this.persist();
+  }
+
+  /** 更新 Session 元信息缓存（改名 / 卸载落盘时保持新鲜），立即写 project.json */
+  async updateSessionMeta(sid: string, meta: SessionMeta): Promise<void> {
+    if (!this.file.sessionIds.includes(sid)) return;
+    this.file.sessionMeta ??= {};
+    this.file.sessionMeta[sid] = meta;
     await this.persist();
   }
 

@@ -4,8 +4,8 @@
  * 协议任何变更需升 PROTOCOL_VERSION，并同步 docs/store-protocol.md。
  */
 
-/** 协议版本：路由 / 语义 / 错误格式任何变更需升级 */
-export const PROTOCOL_VERSION = 1;
+/** 协议版本：路由 / 语义 / 错误格式任何变更需升级（v2：events SSE 落地） */
+export const PROTOCOL_VERSION = 2;
 
 /** 数据目录名（相对项目根；Electron 打包后落到 userData 下同名目录） */
 export const DATA_DIR_NAME = 'chat-canvas-data';
@@ -31,7 +31,7 @@ export interface StoreHealth {
  * relPath 一律相对数据目录根；穿过适配器的数据必须可 JSON 序列化。
  */
 export interface StorageAdapter {
-  kind: 'electron-fs' | 'dev-server' | 'http-remote' | 'localstorage';
+  kind: 'electron-fs' | 'dev-server' | 'http-remote' | 'node-cli';
   /** 读 JSON；路径不存在返回 null（非抛错） */
   readJson(relPath: string): Promise<unknown | null>;
   /** 写 JSON；语义 = 原子替换（tmp + rename 由实现侧负责，调用方无感知） */

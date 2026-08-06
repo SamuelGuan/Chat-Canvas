@@ -15,6 +15,11 @@ export class DevServerAdapter implements StorageAdapter {
     this.kind = /^https?:\/\//.test(this.baseUrl) ? 'http-remote' : 'dev-server';
   }
 
+  /** 服务根地址（SSE 等附属端点拼接用） */
+  getBaseUrl(): string {
+    return this.baseUrl;
+  }
+
   async readJson(relPath: string): Promise<unknown | null> {
     return this.request('GET', `/file?p=${encodeURIComponent(relPath)}`);
   }
