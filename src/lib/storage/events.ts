@@ -28,9 +28,7 @@ export function subscribeStoreEvents(adapter: StorageAdapter, onChanged: () => v
     return () => es.close();
   }
   if (adapter.kind === 'electron-fs' && isElectronEnv() && window.electronAPI?.onStoreChanged) {
-    window.electronAPI.onStoreChanged(onChanged);
-    // Electron preload 未提供退订（与窗口同生命周期），返回空操作
-    return () => {};
+    return window.electronAPI.onStoreChanged(onChanged);
   }
   return () => {};
 }

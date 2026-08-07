@@ -8,8 +8,10 @@ import type { StorageAdapter } from '@/lib/storage/protocol';
 import { projectDir, projectFilePath, sessionFilePath } from '@/lib/storage/paths';
 import {
   STORE_FILE_VERSION,
+  type AssetIndexEntry,
   type ProjectData,
   type ProjectFile,
+  type NodeResourceRef,
   type SessionData,
   type SessionFile,
   type SessionMeta,
@@ -60,6 +62,10 @@ export class ProjectManager {
     return this.file.sessionMeta?.[sid];
   }
 
+  get assetIndex(): Record<string, AssetIndexEntry> {
+    return this.file.assetIndex ?? {};
+  }
+
   /** 登记 Session（可选同时置为激活 / 写入元信息缓存），立即写 project.json */
   async registerSession(sid: string, makeActive = false, meta?: SessionMeta): Promise<void> {
     if (!this.file.sessionIds.includes(sid)) this.file.sessionIds.push(sid);
@@ -97,6 +103,79 @@ export class ProjectManager {
   /** 项目改名（只改 JSON 内 name 字段，不动路径），立即写 project.json */
   async renameProject(name: string): Promise<void> {
     this.file.name = name;
+    await this.persist();
+  }
+
+  /** 用节点最新资源引用同步项目级资源索引，返回已无引用的孤儿路径 */
+  async syncNodeResources(sessionId: string, nodeId: string, refs: NodeResourceRef[]): Promise<string[]> {
+    const nextIndex: Record<string, AssetIndexEntry> = { ...(this.file.assetIndex ?? {}) };
+    const orphanPaths: string[] = [];
+    let dirty = false;
+
+    for (const [path, entry] of Object.entries(nextIndex)) {
+      const keptRefs = entry.refs.filter((ref) => !(ref.sessionId === sessionId && ref.nodeId === nodeId));
+      if (keptRefs.length !== entry.refs.length) {
+        dirty = true;
+        if (keptRefs.length === 0) {
+          delete nextIndex[path];
+          orphanPaths.push(path);
+        } else {
+          nextIndex[path] = { ...entry, refs: keptRefs };
+        }
+      }
+    }
+
+    for (const ref of refs) {
+      const entry = nextIndex[ref.path] ?? { path: ref.path, refs: [] };
+      const exists = entry.refs.some(
+        (item) => item.sessionId === sessionId
+          && item.nodeId === nodeId
+          && item.kind === ref.kind
+          && item.field === ref.field,
+      );
+      if (!exists) {
+        entry.refs = [...entry.refs, { ...ref, sessionId, nodeId }];
+        nextIndex[ref.path] = entry;
+        dirty = true;
+      }
+    }
+
+    if (dirty) {
+      this.file.assetIndex = nextIndex;
+      await this.persist();
+    }
+    return orphanPaths.filter((path) => !refs.some((ref) => ref.path === path));
+  }
+
+  /** 删除整个 Session 的资源引用，返回已无引用的孤儿路径 */
+  async removeSessionResources(sessionId: string): Promise<string[]> {
+    const nextIndex: Record<string, AssetIndexEntry> = { ...(this.file.assetIndex ?? {}) };
+    const orphanPaths: string[] = [];
+    let dirty = false;
+
+    for (const [path, entry] of Object.entries(nextIndex)) {
+      const keptRefs = entry.refs.filter((ref) => ref.sessionId !== sessionId);
+      if (keptRefs.length !== entry.refs.length) {
+        dirty = true;
+        if (keptRefs.length === 0) {
+          delete nextIndex[path];
+          orphanPaths.push(path);
+        } else {
+          nextIndex[path] = { ...entry, refs: keptRefs };
+        }
+      }
+    }
+
+    if (dirty) {
+      this.file.assetIndex = nextIndex;
+      await this.persist();
+    }
+    return orphanPaths;
+  }
+
+  /** 一致性校验后整体替换资源索引 */
+  async replaceAssetIndex(assetIndex: Record<string, AssetIndexEntry>): Promise<void> {
+    this.file.assetIndex = assetIndex;
     await this.persist();
   }
 

@@ -65,6 +65,33 @@ export const PROJECT_SCHEMA = {
         additionalProperties: true,
       },
     },
+    assetIndex: {
+      type: 'object',
+      description: '项目级资源索引（键 = 资源相对路径）',
+      additionalProperties: {
+        type: 'object',
+        required: ['path', 'refs'],
+        properties: {
+          path: { type: 'string' },
+          refs: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['sessionId', 'nodeId', 'path', 'kind', 'field'],
+              properties: {
+                sessionId: { type: 'string' },
+                nodeId: { type: 'string' },
+                path: { type: 'string' },
+                kind: { type: 'string', enum: ['pdf', 'image'] },
+                field: { type: 'string', enum: ['pdfPath', 'markdownContent', 'picturePath'] },
+              },
+              additionalProperties: false,
+            },
+          },
+        },
+        additionalProperties: false,
+      },
+    },
   },
   additionalProperties: false,
 } as const;
@@ -91,7 +118,7 @@ export const SESSION_SCHEMA = {
         required: ['id', 'type', 'position', 'title', 'collapsed', 'createdAt', 'updatedAt'],
         properties: {
           id: { type: 'string' },
-          type: { type: 'string', enum: ['chat', 'note', 'pdf'] },
+          type: { type: 'string', enum: ['chat', 'note', 'pdf', 'picture'] },
           position: {
             type: 'object',
             required: ['x', 'y'],
@@ -146,6 +173,19 @@ export const SESSION_SCHEMA = {
           forkLabel: { type: 'string', description: '消息分叉/术语追问时的来源标签' },
           width: { type: 'number' },
           height: { type: 'number' },
+          resourceRefs: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['path', 'kind', 'field'],
+              properties: {
+                path: { type: 'string' },
+                kind: { type: 'string', enum: ['pdf', 'image'] },
+                field: { type: 'string', enum: ['pdfPath', 'markdownContent', 'picturePath'] },
+              },
+              additionalProperties: false,
+            },
+          },
         },
         additionalProperties: false,
       },

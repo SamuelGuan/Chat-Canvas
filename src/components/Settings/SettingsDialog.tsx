@@ -190,10 +190,10 @@ export function SettingsDialog({ open, onClose }: Props) {
                 {Object.values(allSessions).map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
                 <option value="__all__">全部 Sessions</option>
               </select>
-              <button onClick={handleExport} className="rounded-lg bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 shrink-0">导出 JSON</button>
-              <button onClick={handleImport} className="rounded-lg bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 shrink-0">导入 JSON</button>
+              <button onClick={handleExport} className="rounded-lg bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 shrink-0">导出 Bundle</button>
+              <button onClick={handleImport} className="rounded-lg bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 shrink-0">导入 Bundle</button>
             </div>
-            <p className="mt-1 text-[10px] text-zinc-400">导出所选 Session 的全部卡片与连线；「全部 Sessions」为完整备份</p>
+            <p className="mt-1 text-[10px] text-zinc-400">导出所选 Session 的全部卡片、聊天记录、连线与相关资源；「全部 Sessions」为完整备份</p>
           </section>
 
           <section>

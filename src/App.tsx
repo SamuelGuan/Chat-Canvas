@@ -293,10 +293,12 @@ export default function App() {
 
   // v0.4：订阅数据目录外部变更（文件监听 → 一致性收敛 → SSE/IPC 推送 → 联动重载）
   useEffect(() => {
+    let disposed = false;
     let unsub = () => {};
     void (async () => {
       try {
         const adapter = await getStorageAdapter();
+        if (disposed) return;
         unsub = subscribeStoreEvents(adapter, () => {
           void useCanvasStore.getState().reconvergeFromDisk();
         });
@@ -304,20 +306,23 @@ export default function App() {
         // 无文件存储后端（静态部署）：无推送通道可订阅
       }
     })();
-    return () => unsub();
+    return () => {
+      disposed = true;
+      unsub();
+    };
   }, []);
 
   // Electron 菜单
   useEffect(() => {
     if (!isElectron) return;
     const api = window.electronAPI!;
-    api.onMenuOpenSettings(() => setSettingsOpen(true));
-    api.onMenuNewCard(() => {
+    const offOpenSettings = api.onMenuOpenSettings(() => setSettingsOpen(true));
+    const offNewCard = api.onMenuNewCard(() => {
       const centerX = window.innerWidth / 2;
       const centerY = window.innerHeight / 2;
       addNode({ x: centerX - 250, y: centerY - 100 });
     });
-    api.onMenuImport(() => {
+    const offImport = api.onMenuImport(() => {
       const input = document.createElement('input');
       input.type = 'file'; input.accept = 'application/json';
       input.onchange = async () => {
@@ -330,7 +335,7 @@ export default function App() {
       };
       input.click();
     });
-    api.onMenuExport(() => {
+    const offExport = api.onMenuExport(() => {
       void (async () => {
         const json = await useCanvasStore.getState().exportSessionJson();
         const blob = new Blob([json], { type: 'application/json' });
@@ -338,8 +343,17 @@ export default function App() {
         const a = document.createElement('a'); a.href = url; a.download = `chat-canvas-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url);
       })();
     });
-    api.onMenuToggleTheme(() => setTheme(theme === 'dark' ? 'light' : 'dark'));
-  }, [isElectron, addNode, theme, setTheme]);
+    const offToggleTheme = api.onMenuToggleTheme(() => {
+      setTheme(useSettingsStore.getState().theme === 'dark' ? 'light' : 'dark');
+    });
+    return () => {
+      offOpenSettings();
+      offNewCard();
+      offImport();
+      offExport();
+      offToggleTheme();
+    };
+  }, [isElectron, addNode, setTheme]);
 
   return (
     <div className="h-screen w-screen flex flex-row overflow-hidden bg-[#f5f4ed] dark:bg-zinc-900">

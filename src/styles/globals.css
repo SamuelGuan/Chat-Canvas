@@ -164,10 +164,15 @@
   /* 调整大小手柄：浅色模式橙色系；深色模式保持库默认 */
   .react-flow__resize-control.line {
     border-color: rgba(217, 119, 87, 0.7) !important;
+    border-width: 3px !important;
   }
 
   .react-flow__resize-control.handle {
     border-color: #d97757 !important;
+    width: 14px !important;
+    height: 14px !important;
+    border-width: 2px !important;
+    background-color: #fff7ed !important;
   }
 
   /* 聊天消息行间距 */

@@ -15,15 +15,15 @@ export interface ElectronAPI {
   storeReadBinary: (relPath: string) => Promise<ArrayBuffer | null>;
   storeWriteBinary: (relPath: string, data: ArrayBuffer) => Promise<void>;
   storeExists: (relPath: string) => Promise<boolean>;
-  onStoreChanged: (cb: () => void) => void;
-  onMenuNewCard: (cb: () => void) => void;
-  onMenuOpenSettings: (cb: () => void) => void;
-  onMenuImport: (cb: () => void) => void;
-  onMenuExport: (cb: () => void) => void;
-  onMenuToggleTheme: (cb: () => void) => void;
-  onMenuZoomIn: (cb: () => void) => void;
-  onMenuZoomOut: (cb: () => void) => void;
-  onMenuZoomReset: (cb: () => void) => void;
+  onStoreChanged: (cb: () => void) => () => void;
+  onMenuNewCard: (cb: () => void) => () => void;
+  onMenuOpenSettings: (cb: () => void) => () => void;
+  onMenuImport: (cb: () => void) => () => void;
+  onMenuExport: (cb: () => void) => () => void;
+  onMenuToggleTheme: (cb: () => void) => () => void;
+  onMenuZoomIn: (cb: () => void) => () => void;
+  onMenuZoomOut: (cb: () => void) => () => void;
+  onMenuZoomReset: (cb: () => void) => () => void;
 }
 
 declare global {

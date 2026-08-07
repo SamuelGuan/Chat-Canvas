@@ -25,11 +25,43 @@ export interface ChatMessage {
   status: 'pending' | 'streaming' | 'done' | 'error';
 }
 
+export type NodeResourceKind = 'pdf' | 'image';
+export type NodeResourceField = 'pdfPath' | 'markdownContent' | 'picturePath';
+
+export interface NodeResourceRef {
+  path: string;
+  kind: NodeResourceKind;
+  field: NodeResourceField;
+}
+
+export interface AssetIndexRef extends NodeResourceRef {
+  sessionId: string;
+  nodeId: string;
+}
+
+export interface AssetIndexEntry {
+  path: string;
+  refs: AssetIndexRef[];
+}
+
+export interface SessionBundleAsset {
+  path: string;
+  dataBase64: string;
+}
+
+export interface SessionBundleFile {
+  format: 'chat-canvas-bundle';
+  version: number;
+  sessions: Record<string, SessionData>;
+  activeSessionId?: string;
+  assets: SessionBundleAsset[];
+}
+
 /* ===== 图节点 ===== */
 
 export interface GraphNode {
   id: string;
-  type: 'chat' | 'note' | 'pdf';     // v0.5: 扩展联合 (v0.6+: + 'agent')
+  type: 'chat' | 'note' | 'pdf' | 'picture';     // v0.5: 扩展联合 (v0.6+: + 'agent')
   position: { x: number; y: number };
   title: string;
   model: string;
@@ -50,6 +82,12 @@ export interface GraphNode {
   pdfPath?: string;
   pdfCurrentPage?: number;
   pdfTotalPages?: number;
+
+  // picture 专属
+  picturePath?: string;
+
+  // 资源引用索引（由 store 同步维护）
+  resourceRefs?: NodeResourceRef[];
 }
 
 /* ===== 图边 ===== */
@@ -121,6 +159,8 @@ export interface ProjectFile {
   sessionIds: string[];
   /** Session 元信息缓存（键 = sessionId）；可选，缺失/过期由一致性校验重建 */
   sessionMeta?: Record<string, SessionMeta>;
+  /** 项目级资源索引（键 = 资源相对路径） */
+  assetIndex?: Record<string, AssetIndexEntry>;
 }
 
 /** projects/<pid>/sessions/<sid>.json（分区数据区）：SessionData + 文件版本 */

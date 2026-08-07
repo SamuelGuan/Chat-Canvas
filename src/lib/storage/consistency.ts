@@ -27,6 +27,7 @@ import {
   type SessionFile,
   type SessionMeta,
 } from '../../types';
+import { buildProjectAssetIndex } from '../resourceIndex';
 
 /** 校验报告（CLI 打印 / 调试用） */
 export interface ReconcileReport {
@@ -44,10 +45,12 @@ export interface ReconcileReport {
   pinnedFixed: string[];
   /** sessionMeta 重建过元信息缓存的 Session（'pid/sid'） */
   metaRebuilt: string[];
+  /** assetIndex / node.resourceRefs 重建过的项目 id */
+  assetIndexRebuilt: string[];
 }
 
 function emptyReport(): ReconcileReport {
-  return { projectsRemoved: [], projectsAdded: [], sessionsRemoved: [], sessionsAdded: [], sessionsMoved: [], pinnedFixed: [], metaRebuilt: [] };
+  return { projectsRemoved: [], projectsAdded: [], sessionsRemoved: [], sessionsAdded: [], sessionsMoved: [], pinnedFixed: [], metaRebuilt: [], assetIndexRebuilt: [] };
 }
 
 function makePinnedMeta(pid: string, name: string): ProjectMeta {
@@ -186,6 +189,35 @@ export async function reconcileData(adapter: StorageAdapter): Promise<ReconcileR
     if (pj.activeSessionId && !pj.sessionIds.includes(pj.activeSessionId)) {
       pj.activeSessionId = null;
       dirty = true;
+    }
+
+    const sessionFiles: SessionFile[] = [];
+    for (const sid of pj.sessionIds) {
+      const sf = (await adapter.readJson(sessionFilePath(pid, sid))) as SessionFile | null;
+      if (sf) sessionFiles.push(sf);
+    }
+    const sessions = sessionFiles.map((sf) => {
+      const { version: _version, ...session } = sf;
+      return session;
+    });
+    const { assetIndex, normalizedSessions } = buildProjectAssetIndex(sessions);
+    const oldAssetIndex = JSON.stringify(pj.assetIndex ?? {});
+    const nextAssetIndex = JSON.stringify(assetIndex);
+    if (oldAssetIndex !== nextAssetIndex) {
+      pj.assetIndex = assetIndex;
+      dirty = true;
+      report.assetIndexRebuilt.push(pid);
+    }
+    for (let i = 0; i < normalizedSessions.length; i++) {
+      const current = sessions[i];
+      const normalized = normalizedSessions[i];
+      if (JSON.stringify(current.nodes) !== JSON.stringify(normalized.nodes)) {
+        await adapter.writeJson(
+          sessionFilePath(pid, normalized.id),
+          { ...normalized, version: STORE_FILE_VERSION },
+        );
+        if (!report.assetIndexRebuilt.includes(pid)) report.assetIndexRebuilt.push(pid);
+      }
     }
     if (dirty) await adapter.writeJson(projectFilePath(pid), pj);
   }

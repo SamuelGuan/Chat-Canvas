@@ -7,7 +7,8 @@ import { cardRegistry } from '../registry';
 import { initCardComm } from '../communicateAdapter';
 import { chatCardPlugin } from './chatCard.plugin';
 import { noteCardPlugin } from './noteCard.plugin';
+import { pictureCardPlugin } from './pictureCard.plugin';
 import { pdfCardPlugin } from './pdfCard.plugin';
 
-cardRegistry.register(chatCardPlugin, noteCardPlugin, pdfCardPlugin);
+cardRegistry.register(chatCardPlugin, noteCardPlugin, pictureCardPlugin, pdfCardPlugin);
 initCardComm(cardRegistry);

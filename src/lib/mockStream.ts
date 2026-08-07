@@ -124,10 +124,25 @@ export async function mockStream(
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
+    const cleanup = () => {
+      if (signal) {
+        signal.removeEventListener('abort', onAbort);
+      }
+    };
+    const onAbort = () => {
       clearTimeout(timer);
-      throw new Error('UserAbort'); // 与 llm.ts 语义统一
-    });
+      cleanup();
+      reject(new Error('UserAbort'));
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    if (!signal) return;
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
   });
 }

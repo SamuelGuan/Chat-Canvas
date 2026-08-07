@@ -26,6 +26,7 @@ export const NoteNode = memo(function NoteNode({ id, data, selected }: NodeProps
   const node = (data ?? {}) as unknown as NoteNodeData;
   const updateNode = useCanvasStore((s) => s.updateNode);
   const hasContent = !!(node.markdownContent ?? '').trim();
+  const toolbarButtonClass = 'text-xs px-2 py-1 rounded-md bg-[#D97757] text-white hover:bg-[#C96B4D] dark:bg-violet-700 dark:hover:bg-violet-600';
   const [content, setContent] = useState(node.markdownContent ?? '');
   const [preview, setPreview] = useState(false);
   const [mode, setMode] = useState<NoteMode>(hasContent ? 'edit' : 'select');
@@ -106,13 +107,13 @@ export const NoteNode = memo(function NoteNode({ id, data, selected }: NodeProps
 
   return (
     <div
-      className="relative rounded-lg border shadow-md bg-[#FFFDF7] dark:bg-zinc-800 border-amber-200 dark:border-amber-800 min-w-[400px]"
+      className="relative rounded-lg border shadow-md bg-[#FFFDF7] dark:bg-zinc-800 border-amber-200 dark:border-violet-700 min-w-[400px]"
       style={{ width: node.width || 1200, height: node.height || 1000 }}
     >
       <NodeResizer minWidth={300} minHeight={200} isVisible={selected} lineStyle={{ borderColor: '#D97757' }} />
 
       {/* 标题栏 */}
-      <div className="flex items-center justify-between border-b border-amber-200 dark:border-amber-800 px-3 py-2">
+      <div className="flex items-center justify-between border-b border-amber-200 dark:border-violet-700 px-3 py-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-amber-600 dark:text-amber-400 text-xs shrink-0">[Note]</span>
           <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate">{node.title}</span>
@@ -120,7 +121,7 @@ export const NoteNode = memo(function NoteNode({ id, data, selected }: NodeProps
         <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={() => setPreview(!preview)}
-            className="text-[10px] px-1.5 py-0.5 rounded text-zinc-400 hover:text-zinc-600 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+            className={toolbarButtonClass}
             title={preview ? '编辑' : '预览'}
           >
             {preview ? 'Edit' : 'Preview'}
@@ -198,4 +199,3 @@ export const NoteNode = memo(function NoteNode({ id, data, selected }: NodeProps
     </div>
   );
 }, shallowSkipPosition);
-

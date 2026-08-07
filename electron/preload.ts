@@ -23,33 +23,51 @@ const electronAPI = {
 
   // 数据目录外部变更通知（文件监听触发）
   onStoreChanged: (callback: () => void) => {
-    ipcRenderer.on(IPC_CHANNELS.STORE_CHANGED, () => callback());
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.STORE_CHANGED, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.STORE_CHANGED, listener);
   },
 
   // 菜单事件监听
   onMenuNewCard: (callback: () => void) => {
-    ipcRenderer.on(IPC_CHANNELS.MENU_NEW_CARD, () => callback());
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.MENU_NEW_CARD, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_NEW_CARD, listener);
   },
   onMenuOpenSettings: (callback: () => void) => {
-    ipcRenderer.on(IPC_CHANNELS.MENU_OPEN_SETTINGS, () => callback());
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.MENU_OPEN_SETTINGS, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_OPEN_SETTINGS, listener);
   },
   onMenuImport: (callback: () => void) => {
-    ipcRenderer.on(IPC_CHANNELS.MENU_IMPORT, () => callback());
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.MENU_IMPORT, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_IMPORT, listener);
   },
   onMenuExport: (callback: () => void) => {
-    ipcRenderer.on(IPC_CHANNELS.MENU_EXPORT, () => callback());
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.MENU_EXPORT, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_EXPORT, listener);
   },
   onMenuToggleTheme: (callback: () => void) => {
-    ipcRenderer.on(IPC_CHANNELS.MENU_TOGGLE_THEME, () => callback());
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.MENU_TOGGLE_THEME, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_TOGGLE_THEME, listener);
   },
   onMenuZoomIn: (callback: () => void) => {
-    ipcRenderer.on(IPC_CHANNELS.MENU_ZOOM_IN, () => callback());
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.MENU_ZOOM_IN, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_ZOOM_IN, listener);
   },
   onMenuZoomOut: (callback: () => void) => {
-    ipcRenderer.on(IPC_CHANNELS.MENU_ZOOM_OUT, () => callback());
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.MENU_ZOOM_OUT, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_ZOOM_OUT, listener);
   },
   onMenuZoomReset: (callback: () => void) => {
-    ipcRenderer.on(IPC_CHANNELS.MENU_ZOOM_RESET, () => callback());
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.MENU_ZOOM_RESET, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_ZOOM_RESET, listener);
   },
 };
 

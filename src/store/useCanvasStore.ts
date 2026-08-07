@@ -13,13 +13,15 @@
  */
 import { create } from 'zustand';
 import { nanoid } from 'nanoid';
-import { GraphNode, GraphEdge, SessionData, ProjectData, CanvasViewport, DEFAULT_PROJECT_ID, IMPORT_PROJECT_ID, type SessionMeta } from '@/types';
+import { GraphNode, GraphEdge, SessionData, ProjectData, CanvasViewport, DEFAULT_PROJECT_ID, IMPORT_PROJECT_ID, type SessionBundleAsset, type SessionBundleFile, type SessionMeta } from '@/types';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useChatStore } from '@/store/useChatStore';
 import { canonicalStringify, cloneSession, sessionContentHash } from '@/lib/utils';
 import type { StorageAdapter } from '@/lib/storage/protocol';
 import { getStorageAdapter } from '@/lib/storage/adapter';
 import { projectDir } from '@/lib/storage/paths';
+import { buildNodeResourceRefs, sameResourceRefs } from '@/lib/resourceIndex';
+import { base64ToArrayBuffer, buildSessionBundle, collectSessionAssetPaths, encodeBundleAsset, isSessionBundleFile, remapSessionBundleAssets } from '@/lib/sessionBundle';
 import { reconcileData } from '@/lib/storage/consistency';
 import { RootManager } from '@/store/rootManager';
 import { ProjectManager } from '@/store/projectManager';
@@ -48,6 +50,18 @@ function mustRuntime(): SessionRuntime {
   return runtime;
 }
 
+async function deleteOrphanAssets(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  const adapter = await getStorageAdapter();
+  await Promise.all(paths.map(async (path) => {
+    try {
+      await adapter.delete(path);
+    } catch {
+      // 孤儿资源删除失败不阻断主流程，下一次清理仍可重试
+    }
+  }));
+}
+
 /** 后台落盘任务串行执行（保证 create → register 等顺序）；失败仅记录，权威状态 = 磁盘 + 校验收敛 */
 let bgQueue: Promise<void> = Promise.resolve();
 function bg(task: () => Promise<unknown>): void {
@@ -57,6 +71,24 @@ function bg(task: () => Promise<unknown>): void {
 /** SessionData → project.json 元信息缓存 */
 function metaOf(s: SessionData): SessionMeta {
   return { name: s.name, createdAt: s.createdAt, updatedAt: s.updatedAt };
+}
+
+function normalizeSessionResourceRefs(session: SessionData): SessionData {
+  const nextNodes: Record<string, GraphNode> = {};
+  let changed = false;
+  for (const [nodeId, node] of Object.entries(session.nodes)) {
+    const refs = buildNodeResourceRefs(node);
+    nextNodes[nodeId] = sameResourceRefs(node.resourceRefs, refs)
+      ? node
+      : { ...node, resourceRefs: refs };
+    if (!sameResourceRefs(node.resourceRefs, refs)) changed = true;
+  }
+  return changed ? { ...session, nodes: nextNodes } : session;
+}
+
+function bundleAssetTargetPath(sourcePath: string, targetProjectId: string): string {
+  const fileName = sourcePath.split('/').pop() ?? sourcePath;
+  return `projects/${targetProjectId}/assets/${fileName}`;
 }
 
 /** 装载项目 Manager（不存在则按 state.projects 元数据创建） */
@@ -320,12 +352,23 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
     updateNode: (id, patch) => {
       const rt = mustRuntime();
-      if (!rt.session.nodes[id]) return;
+      const currentNode = rt.session.nodes[id];
+      if (!currentNode) return;
       const session = cloneSession(rt.session);
-      session.nodes[id] = { ...session.nodes[id], ...patch, updatedAt: Date.now() };
+      const nextNode = { ...session.nodes[id], ...patch, updatedAt: Date.now() };
+      const nextResourceRefs = buildNodeResourceRefs(nextNode);
+      nextNode.resourceRefs = nextResourceRefs;
+      session.nodes[id] = nextNode;
       session.updatedAt = Date.now();
       rt.commit(session);
       set({ session: rt.session });
+      if (!sameResourceRefs(currentNode.resourceRefs, nextResourceRefs)) {
+        bg(async () => {
+          const pm = await ensureProjectManager(session.projectId);
+          const orphanPaths = await pm.syncNodeResources(session.id, id, nextResourceRefs);
+          await deleteOrphanAssets(orphanPaths);
+        });
+      }
     },
 
     deleteNode: (id) => {
@@ -341,19 +384,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         useChatStore.setState({ streamingNodeId: null, streamingText: '' });
       }
 
-      // 2. 清理 PDF 二进制文件（如无其他节点引用）
-      if (node.type === 'pdf' && (node as any).pdfPath) {
-        const pdfPath = (node as any).pdfPath as string;
-        const otherRefs = Object.values(session.nodes).some(
-          (n: any) => n.id !== id && n.pdfPath === pdfPath,
-        );
-        if (!otherRefs) {
-          getStorageAdapter().then((adapter) => {
-            adapter.delete(pdfPath).catch(() => {});
-          });
-        }
-      }
-
       delete session.nodes[id];
       for (const eid of Object.keys(session.edges)) {
         const e = session.edges[eid];
@@ -362,6 +392,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       session.updatedAt = Date.now();
       rt.commit(session);
       set((s) => ({ session: rt.session, selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId }));
+      bg(async () => {
+        const pm = await ensureProjectManager(session.projectId);
+        const orphanPaths = await pm.syncNodeResources(session.id, id, []);
+        await deleteOrphanAssets(orphanPaths);
+      });
     },
 
     duplicateNode: (id, offsetX = 40, offsetY = 40) => {
@@ -378,11 +413,19 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         createdAt: now,
         updatedAt: now,
       };
+      const nextResourceRefs = buildNodeResourceRefs(copy);
+      copy.resourceRefs = nextResourceRefs;
       const session = cloneSession(rt.session);
       session.nodes[newId] = copy;
       session.updatedAt = now;
       rt.commit(session);
       set({ session: rt.session, selectedNodeId: newId });
+      if (nextResourceRefs.length > 0) {
+        bg(async () => {
+          const pm = await ensureProjectManager(session.projectId);
+          await pm.syncNodeResources(session.id, newId, nextResourceRefs);
+        });
+      }
       return newId;
     },
 
@@ -453,12 +496,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const s = get();
       // projectId 失效归拢「导入的 Sessions」（原 merge 不变量平移）
       const pid = s.projects[data.projectId] ? data.projectId : IMPORT_PROJECT_ID;
-      const session = { ...data, projectId: pid };
+      const session = normalizeSessionResourceRefs({ ...data, projectId: pid });
       activateSession(session);
       bg(async () => {
         const pm = await ensureProjectManager(pid);
         await pm.writeSession(session);
         await pm.registerSession(session.id, true, metaOf(session));
+        for (const node of Object.values(session.nodes)) {
+          await pm.syncNodeResources(session.id, node.id, node.resourceRefs ?? []);
+        }
       });
     },
 
@@ -546,8 +592,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       bg(async () => {
         const pm = await ProjectManager.load(mustStorage(), target.projectId);
         if (pm) {
+          const orphanPaths = await pm.removeSessionResources(id);
           await pm.unregisterSession(id);
           await pm.deleteSessionFile(id);
+          await deleteOrphanAssets(orphanPaths);
         }
       });
       if (id !== s.session.id) {
@@ -591,7 +639,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const newId = nanoid(8);
       const now = Date.now();
       const finish = (full: SessionData) => {
-        const copy = cloneSession(full);
+        const copy = normalizeSessionResourceRefs(cloneSession(full));
         copy.id = newId;
         copy.name = `${full.name} (副本)`;
         // 副本按创建时间倒序应排在顶部，时间戳需刷新
@@ -603,6 +651,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           const pm = await ensureProjectManager(copy.projectId);
           await pm.writeSession(copy);
           await pm.registerSession(newId, false, metaOf(copy));
+          for (const node of Object.values(copy.nodes)) {
+            await pm.syncNodeResources(copy.id, node.id, node.resourceRefs ?? []);
+          }
         });
       };
       if (id === s.session.id || !stubIds.has(id)) {
@@ -771,32 +822,64 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
     exportSessionJson: async (sessionId) => {
       const s = get();
+      const sessionsToExport: Record<string, SessionData> = {};
       if (sessionId) {
-        if (sessionId === s.session.id) return JSON.stringify(s.session, null, 2);
-        // 指定单个导出：stub 先读盘
-        const full = await loadFullSession(sessionId);
-        return JSON.stringify(full ?? s.sessions[sessionId] ?? s.session, null, 2);
+        if (sessionId === s.session.id) {
+          sessionsToExport[s.session.id] = s.session;
+        } else {
+          const full = await loadFullSession(sessionId);
+          sessionsToExport[sessionId] = full ?? s.sessions[sessionId] ?? s.session;
+        }
+      } else {
+        sessionsToExport[s.session.id] = s.session;
+        for (const [sid, stub] of Object.entries(get().sessions)) {
+          sessionsToExport[sid] = (await loadFullSession(sid)) ?? stub;
+        }
       }
-      // 完整备份：全量视图在导出时临时合成（只读，不是一致性补丁）；stub 逐个读盘
-      const sessions: Record<string, SessionData> = { [s.session.id]: s.session };
-      for (const [sid, stub] of Object.entries(get().sessions)) {
-        sessions[sid] = (await loadFullSession(sid)) ?? stub;
+
+      const assetPaths = new Set<string>();
+      for (const session of Object.values(sessionsToExport)) {
+        for (const path of collectSessionAssetPaths(session)) assetPaths.add(path);
       }
-      return JSON.stringify({ sessions, activeSessionId: s.activeSessionId }, null, 2);
+
+      const adapter = await getStorageAdapter();
+      const assets: SessionBundleAsset[] = [];
+      for (const path of assetPaths) {
+        const buffer = await adapter.readBinary(path);
+        if (buffer) assets.push(encodeBundleAsset(path, buffer));
+      }
+
+      const bundle = buildSessionBundle(
+        sessionsToExport,
+        assets,
+        sessionId ? sessionId : s.activeSessionId,
+      );
+      return JSON.stringify(bundle, null, 2);
     },
 
     importSessions: async (data) => {
       const state = get();
       // 兼容两种导出格式：完整备份 {sessions, activeSessionId} 或单个 SessionData
       const d = data as Partial<SessionData> & { sessions?: Record<string, SessionData>; activeSessionId?: string };
+      const bundle = isSessionBundleFile(data) ? data as SessionBundleFile : null;
       let incoming: SessionData[];
-      const incomingActiveId = d.activeSessionId ?? null;
-      if (d.sessions && typeof d.sessions === 'object') {
+      const incomingActiveId = bundle?.activeSessionId ?? d.activeSessionId ?? null;
+      if (bundle) {
+        incoming = Object.values(bundle.sessions);
+      } else if (d.sessions && typeof d.sessions === 'object') {
         incoming = Object.values(d.sessions);
       } else if (d.id && d.nodes) {
         incoming = [d as SessionData];
       } else {
         throw new Error('无法识别的 Session 文件格式');
+      }
+
+      const bundlePathMap = new Map<string, string>();
+      if (bundle) {
+        for (const asset of bundle.assets) {
+          const targetPath = bundleAssetTargetPath(asset.path, IMPORT_PROJECT_ID);
+          bundlePathMap.set(asset.path, targetPath);
+        }
       }
 
       // 现有 Session 内容哈希集合（激活 + 非激活均权威；stub 逐个读盘计算）
@@ -812,10 +895,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const toAdd: Record<string, SessionData> = {};
       for (const raw of incoming) {
         if (!raw?.id || !raw.nodes) { skipped++; continue; }
-        const hash = await sessionContentHash(raw);
+        const bundled = bundle
+          ? remapSessionBundleAssets(cloneSession(raw), bundlePathMap, IMPORT_PROJECT_ID)
+          : cloneSession(raw);
+        const hash = await sessionContentHash(bundled);
         // ★ SHA-256 内容哈希相同则忽略，避免重复导入造成覆盖
         if (existingHashes.has(hash)) { skipped++; continue; }
-        const session = cloneSession(raw);
+        const session = normalizeSessionResourceRefs(bundled);
         // ★ 导入的 Session 统一归入「导入的 Sessions」固定项目
         session.projectId = IMPORT_PROJECT_ID;
         // id 冲突但内容不同：换新 id 并存，避免覆盖现有 Session
@@ -842,10 +928,28 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           set((s) => ({ sessions: { ...s.sessions, ...toAdd } }));
         }
         bg(async () => {
+          const adapter = await getStorageAdapter();
+          const requiredAssetPaths = new Set<string>();
+          for (const sess of Object.values(toAdd)) {
+            for (const path of collectSessionAssetPaths(sess)) requiredAssetPaths.add(path);
+          }
+          if (bundle) {
+            for (const asset of bundle.assets) {
+              const targetPath = bundlePathMap.get(asset.path);
+              if (!targetPath || !requiredAssetPaths.has(targetPath)) continue;
+              const existed = await adapter.exists(targetPath);
+              if (!existed) {
+                await adapter.writeBinary(targetPath, base64ToArrayBuffer(asset.dataBase64));
+              }
+            }
+          }
           const pm = await ensureProjectManager(IMPORT_PROJECT_ID);
           for (const sess of Object.values(toAdd)) {
             await pm.writeSession(sess);
             await pm.registerSession(sess.id, sess.id === target?.id, metaOf(sess));
+            for (const node of Object.values(sess.nodes)) {
+              await pm.syncNodeResources(sess.id, node.id, node.resourceRefs ?? []);
+            }
           }
         });
       }

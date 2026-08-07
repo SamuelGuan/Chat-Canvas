@@ -89,6 +89,11 @@ function CanvasInner() {
       id: n.id, type: n.type, position: n.position,
       data: { ...n, isAssemble: assembleNodeIds.includes(n.id) },
       selected: selectedNodeId === n.id,
+      style: n.type === 'pdf'
+        ? { width: `${n.width ?? 1400}px`, height: `${n.height ?? 1100}px` }
+        : n.type === 'picture'
+          ? { width: `${n.width ?? 900}px`, height: `${n.height ?? 700}px` }
+        : undefined,
     })));
   }, [nodesArray, selectedNodeId, assembleNodeIds, setRfNodes]);
 
@@ -213,10 +218,11 @@ function CanvasInner() {
 
   useEffect(() => {
     if (!isElectron) return;
-    window.electronAPI!.onMenuNewCard(() => {
+    const offNewCard = window.electronAPI!.onMenuNewCard(() => {
       const pos = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
       addNode({ x: pos.x - 250, y: pos.y - 100 });
     });
+    return () => offNewCard();
   }, [isElectron, addNode, screenToFlowPosition]);
 
   // 导出拼装 Markdown
