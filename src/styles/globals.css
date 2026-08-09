@@ -29,6 +29,19 @@
   }
 }
 
+/* Markdown 块级增量渲染的块包装：浏览器跳过离屏块的布局与绘制，
+   contain-intrinsic-size 记忆已渲染尺寸避免滚动条跳动（长公式文档滚动提速） */
+.md-block {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 100px;
+}
+
+/* 低缩放 LOD：画布缩到正文不可读时隐藏 Markdown 正文块（公式/代码等重内容），
+   仅保留卡片框架；display:none 不卸载 React 组件，放大回来零重排成本 */
+.react-flow.canvas-lod-low .md-block {
+  display: none;
+}
+
 @layer components {
   /* 画布区域真正底色：React Flow 容器与背景层都需显式覆盖 */
   .react-flow,

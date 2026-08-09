@@ -3,10 +3,10 @@
  * SessionRuntime（分区数据区）：激活 Session 驻留。
  * —— 每个 Session 的权威状态只有一份：激活态由本类持有（zustand state.session 为同一引用的响应式视图），
  *    非激活态权威 = 磁盘文件；切换时旧实例先落盘再卸载，无副本。
- * —— undo/redo 栈随实例驻留内存，不落盘，随实例销毁自然清理。
+ * —— undo/redo 栈随实例驻留内存，不落盘，随实例销毁自然清理；栈内存不可变引用（零拷贝）。
  * —— 内容变化防抖 500ms 写本 session 文件；元数据变化立即写。
  */
-import { debounce, cloneSession } from '@/lib/utils';
+import { debounce } from '@/lib/utils';
 import { sessionFilePath } from '@/lib/storage/paths';
 import type { StorageAdapter } from '@/lib/storage/protocol';
 import { STORE_FILE_VERSION, type SessionData, type SessionFile } from '@/types';
@@ -41,7 +41,9 @@ export class SessionRuntime {
    */
   commit(next: SessionData, opts: { history?: boolean; immediate?: boolean } = {}): void {
     if (opts.history ?? true) {
-      this.past.push(cloneSession(this.session));
+      // undo 栈存引用而非深拷贝：commit 契约要求调用方不就地修改旧对象，
+      // 旧快照因此天然不可变，共享引用零拷贝（消息含 base64 图片时克隆代价极高）
+      this.past.push(this.session);
       this.past = this.past.slice(-HISTORY_LIMIT);
       this.future = [];
     }
@@ -58,7 +60,7 @@ export class SessionRuntime {
   undo(): boolean {
     const prev = this.past.pop();
     if (!prev) return false;
-    this.future.push(cloneSession(this.session));
+    this.future.push(this.session);
     this.session = prev;
     this.scheduleWrite();
     return true;
@@ -68,7 +70,7 @@ export class SessionRuntime {
   redo(): boolean {
     const next = this.future.pop();
     if (!next) return false;
-    this.past.push(cloneSession(this.session));
+    this.past.push(this.session);
     this.session = next;
     this.scheduleWrite();
     return true;

@@ -5,22 +5,16 @@
  */
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { Handle, Position, NodeProps, NodeResizer } from '@xyflow/react';
-import ReactMarkdown from 'react-markdown';
-import rehypeHighlight from 'rehype-highlight';
-import remarkMath from 'remark-math';
-import remarkGfm from 'remark-gfm';
-import remarkSupersub from 'remark-supersub';
-import rehypeMathjax from 'rehype-mathjax/svg';
 import { useChatStore } from '@/store/useChatStore';
 import { useCanvasStore } from '@/store/useCanvasStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { streamChat } from '@/lib/llm';
 import { mockStream } from '@/lib/mockStream';
 import { buildContext } from '@/lib/contextBuilder';
-import { cn, formatTime, mathjaxTexOptions, normalizeMathDelimiters, shallowSkipPosition } from '@/lib/utils';
+import { cn, formatTime, shallowSkipPosition } from '@/lib/utils';
 import { GraphNode, ChatMessage, ContentPart, MessageContent } from '@/types';
 import { SettingsIcon, PencilIcon, CopyIcon, ImageIcon } from '@/components/icons';
-import 'highlight.js/styles/github-dark.css';
+import { MemoMarkdownBlocks } from '@/components/MemoMarkdown';
 
 interface ChatNodeData extends GraphNode {
   selected?: boolean;
@@ -351,7 +345,7 @@ export const ChatNode = memo(function ChatNode({ id, data, selected }: NodeProps
                   </div>
                 ) : msg.role === 'assistant' || msg.role === 'system' ? (
                   <div className="prose prose-sm dark:prose-invert max-w-none break-words prose-pre:p-0 prose-pre:bg-transparent">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm, remarkSupersub]} rehypePlugins={[[rehypeMathjax, mathjaxTexOptions], rehypeHighlight]}>{normalizeMathDelimiters((typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)) || (msg.status === 'streaming' ? '▋' : msg.status === 'pending' ? '⏳ 排队中...' : ''))}</ReactMarkdown>
+                    <MemoMarkdownBlocks content={(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)) || (msg.status === 'streaming' ? '▋' : msg.status === 'pending' ? '⏳ 排队中...' : '')} />
                   </div>
                 ) : (
                   <div className="whitespace-pre-wrap break-words text-zinc-700 dark:text-zinc-300">{(typeof msg.content === 'string' ? msg.content : (msg.content as any[]).filter((p: any) => p.type === 'text').map((p: any) => p.text).join(''))}</div>

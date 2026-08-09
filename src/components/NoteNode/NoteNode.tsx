@@ -5,16 +5,10 @@
  */
 import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { Handle, Position, NodeProps, NodeResizer } from '@xyflow/react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
-import remarkSupersub from 'remark-supersub';
-import rehypeMathjax from 'rehype-mathjax/svg';
-import rehypeHighlight from 'rehype-highlight';
 import { useCanvasStore } from '@/store/useCanvasStore';
 import { GraphNode } from '@/types';
-import { formatTime, mathjaxTexOptions, normalizeMathDelimiters, shallowSkipPosition } from '@/lib/utils';
-import 'highlight.js/styles/github-dark.css';
+import { formatTime, shallowSkipPosition } from '@/lib/utils';
+import { MemoMarkdownBlocks } from '@/components/MemoMarkdown';
 
 interface NoteNodeData extends GraphNode {
   selected?: boolean;
@@ -168,12 +162,8 @@ export const NoteNode = memo(function NoteNode({ id, data, selected }: NodeProps
           </div>
         ) : preview ? (
           <div ref={previewRef} className="flex-1 overflow-y-auto p-3 prose prose-sm dark:prose-invert max-w-none font-medium">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkMath, remarkSupersub]}
-              rehypePlugins={[[rehypeMathjax, mathjaxTexOptions], rehypeHighlight]}
-            >
-              {content ? normalizeMathDelimiters(content) : '*无内容*'}
-            </ReactMarkdown>
+            {/* 块级增量渲染：改一处只重排该块，离屏公式块不参与布局绘制 */}
+            <MemoMarkdownBlocks content={content ? content : '*无内容*'} />
           </div>
         ) : (
           <>

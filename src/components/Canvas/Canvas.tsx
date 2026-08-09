@@ -71,6 +71,8 @@ function CanvasInner() {
 
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<Node>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  // 低细节渲染（LOD）：缩放到正文不可读时隐藏 Markdown 正文块，跳过 SVG 公式的 CPU 栅格化
+  const [lowLod, setLowLod] = useState(false);
 
   // 主题感知：连线颜色需区分深浅色
   const theme = useSettingsStore((s) => s.theme);
@@ -136,6 +138,12 @@ function CanvasInner() {
   }, [onNodesChange, deleteNodeFn, clearNodeMessages, updateNode, setSelectedNode]);
 
   const handleEdgesChange = useCallback((changes: EdgeChange<Edge>[]) => { onEdgesChange(changes); }, [onEdgesChange]);
+
+  // 滞后阈值避免临界抖动：zoom < 0.2 进入低细节，> 0.3 退出；
+  // setState 函数式更新，值不变时 React 跳过渲染，平移缩放期高频触发无开销
+  const handleMove = useCallback((_: unknown, vp: { zoom: number }) => {
+    setLowLod((prev) => (prev ? vp.zoom < 0.3 : vp.zoom < 0.2));
+  }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -258,6 +266,8 @@ function CanvasInner() {
     <ReactFlow nodes={rfNodes} edges={rfEdges} onNodesChange={handleNodesChange} onEdgesChange={handleEdgesChange} nodeTypes={cardRegistry.nodeTypes()}
       onDoubleClick={handleDoubleClick} onConnect={handleConnect} onEdgeClick={handleEdgeClick}
       onContextMenu={handleContextMenu}
+      className={lowLod ? 'canvas-lod-low' : undefined}
+      onMove={handleMove}
       onMoveEnd={(_, vp) => setViewport({ x: vp.x, y: vp.y, zoom: vp.zoom })}
       onNodeClick={handleNodeClick} onPaneClick={() => setSelectedNode(null)}
       defaultViewport={{ x: session.viewport.x, y: session.viewport.y, zoom: session.viewport.zoom }}

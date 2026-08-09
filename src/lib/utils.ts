@@ -62,9 +62,10 @@ function shallowEq(a: Record<string, unknown>, b: Record<string, unknown>): bool
   return true;
 }
 
-/** 深拷贝 Session（JSON 序列化语义，丢失 undefined 字段） */
+/** 深拷贝 Session（structuredClone：保留 undefined，避免 JSON 序列化往返开销） */
 export function cloneSession(src: SessionData): SessionData {
-  return JSON.parse(JSON.stringify(src));
+  // structuredClone：避免 JSON 序列化往返，大会话下显著更省
+  return structuredClone(src);
 }
 
 /**

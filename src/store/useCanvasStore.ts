@@ -136,7 +136,7 @@ interface CanvasState {
 
   // ===== 节点 =====
   addNode: (position: { x: number; y: number }, opts?: { type?: string; title?: string; model?: string }) => string;
-  updateNode: (id: string, patch: Partial<GraphNode>) => void;
+  updateNode: (id: string, patch: Partial<GraphNode>, opts?: { history?: boolean }) => void;
   deleteNode: (id: string) => void;
   duplicateNode: (id: string, offsetX?: number, offsetY?: number) => string | null;
   setSelectedNode: (id: string | null) => void;
@@ -350,17 +350,21 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       return id;
     },
 
-    updateNode: (id, patch) => {
+    updateNode: (id, patch, opts) => {
       const rt = mustRuntime();
       const currentNode = rt.session.nodes[id];
       if (!currentNode) return;
-      const session = cloneSession(rt.session);
-      const nextNode = { ...session.nodes[id], ...patch, updatedAt: Date.now() };
+      const nextNode = { ...currentNode, ...patch, updatedAt: Date.now() };
       const nextResourceRefs = buildNodeResourceRefs(nextNode);
       nextNode.resourceRefs = nextResourceRefs;
-      session.nodes[id] = nextNode;
-      session.updatedAt = Date.now();
-      rt.commit(session);
+      // 结构化共享：仅替换 nodes[id] 引用路径，其余节点保持原引用，
+      // 避免每次更新都 cloneSession 全量深拷贝（流式高频写的主要开销）
+      const session: SessionData = {
+        ...rt.session,
+        nodes: { ...rt.session.nodes, [id]: nextNode },
+        updatedAt: Date.now(),
+      };
+      rt.commit(session, { history: opts?.history });
       set({ session: rt.session });
       if (!sameResourceRefs(currentNode.resourceRefs, nextResourceRefs)) {
         bg(async () => {
@@ -380,8 +384,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       // 1. 清理 chatStore 的 streaming 状态
       const chatState = useChatStore.getState();
       if (chatState.streamingNodeId === id) {
-        chatState.finishStreaming(id, '');
-        useChatStore.setState({ streamingNodeId: null, streamingText: '' });
+        useChatStore.setState({ streamingNodeId: null });
       }
 
       delete session.nodes[id];
@@ -471,10 +474,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
     setViewport: (vp) => {
       const rt = mustRuntime();
-      const session = cloneSession(rt.session);
-      session.viewport = vp;
-      session.updatedAt = Date.now();
-      rt.commit(session, { history: false });
+      // 结构化共享：nodes/edges 引用不变，平移缩放结束不会触发画布节点全量重映射
+      rt.commit({ ...rt.session, viewport: vp, updatedAt: Date.now() }, { history: false });
       set({ session: rt.session });
     },
 
