@@ -95,7 +95,7 @@ export const chatCardPlugin: CardPlugin = {
     messages: [],
     collapsed: false,
   },
-  allowIntraLayer: false,
+  allowIntraLayer: true,
   component: ChatNode,
   output,
   input,

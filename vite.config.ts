@@ -30,17 +30,48 @@ function broadcastStoreChanged(paths: string[]): void {
 }
 
 function storeApiPlugin(): Plugin {
+  // 每次 configureServer（含 r 快捷键重启）生成新的清理闭包；buildEnd 由 server.close() 触发
+  let shutdown: (() => void) | null = null;
   return {
     name: 'chat-canvas-store-api',
     configureServer(server) {
       const dataRoot = resolveDataRoot(process.cwd());
       ensureDataRoot(dataRoot);
       // 文件监听：外部变更 → 收敛 → 推送（自写事件在 watcher 内过滤）
-      startStoreWatcher(dataRoot, broadcastStoreChanged);
-      server.httpServer?.once('close', () => { /* watcher 随进程退出 */ });
+      const watcher = startStoreWatcher(dataRoot, broadcastStoreChanged);
+
+      /* 退出清理（幂等）：关闭 chokidar 句柄 + 销毁全部 SSE 长连接。
+       * 不做的后果：q+enter 退出时 httpServer.close() 会永远等 /events 长连接结束，
+       * server.close() 不返回 → 进程挂死、3000 端口残留；chokidar 句柄也挂在事件循环上。 */
+      let cleaned = false;
+      const cleanup = (): void => {
+        if (cleaned) return;
+        cleaned = true;
+        process.off('SIGINT', onSigint);
+        for (const res of sseClients) {
+          try { res.end(); } catch { /* 客户端已断开 */ }
+          res.socket?.destroy();
+        }
+        sseClients.clear();
+        void watcher.close();
+      };
+      // Ctrl+C：npm/PowerShell 链路下默认强杀常残留子进程，这里兜底清理后自行退出
+      const onSigint = (): void => {
+        cleanup();
+        process.exit(0);
+      };
+      process.once('SIGINT', onSigint);
+      server.httpServer?.once('close', cleanup);
+      shutdown = cleanup;
+
       server.middlewares.use(STORE_API_BASE, (req, res) => {
         handleStoreRequest(dataRoot, req, res).catch((e) => sendError(res, e));
       });
+    },
+    // server.close() 会执行插件 buildEnd（与 closeHttpServer 并行），在此结束 SSE 使 http 关闭得以完成
+    buildEnd() {
+      shutdown?.();
+      shutdown = null;
     },
   };
 }
@@ -155,6 +186,11 @@ function sendError(res: ServerResponse, e: unknown): void {
 
 export default defineConfig({
   plugins: [react(), storeApiPlugin()],
+  define: {
+    // mathjax-full components/version.js 在 PACKAGE_VERSION 未定义时会 eval('require')，
+    // 浏览器环境直接抛 ReferenceError 导致白屏，此处注入版本常量规避
+    PACKAGE_VERSION: JSON.stringify('3.2.1'),
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),

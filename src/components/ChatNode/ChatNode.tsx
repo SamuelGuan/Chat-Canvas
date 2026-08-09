@@ -10,14 +10,14 @@ import rehypeHighlight from 'rehype-highlight';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import remarkSupersub from 'remark-supersub';
-import rehypeMathjax from 'rehype-mathjax/browser';
+import rehypeMathjax from 'rehype-mathjax/svg';
 import { useChatStore } from '@/store/useChatStore';
 import { useCanvasStore } from '@/store/useCanvasStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { streamChat } from '@/lib/llm';
 import { mockStream } from '@/lib/mockStream';
 import { buildContext } from '@/lib/contextBuilder';
-import { cn, formatTime, normalizeMathDelimiters, shallowSkipPosition } from '@/lib/utils';
+import { cn, formatTime, mathjaxTexOptions, normalizeMathDelimiters, shallowSkipPosition } from '@/lib/utils';
 import { GraphNode, ChatMessage, ContentPart, MessageContent } from '@/types';
 import { SettingsIcon, PencilIcon, CopyIcon, ImageIcon } from '@/components/icons';
 import 'highlight.js/styles/github-dark.css';
@@ -45,57 +45,6 @@ export const ChatNode = memo(function ChatNode({ id, data, selected }: NodeProps
   const getNodeMessages = useChatStore((s) => s.getNodeMessages);
   const messages = getNodeMessages(id);
 
-  // MathJax 排版：仅对新增消息元素排版，不复排已渲染的旧公式
-  const typesetCount = useRef(0);
-  const doTypeset = useCallback((els: HTMLElement[]) => {
-    if (els.length === 0) return;
-    const win = window as any;
-    if (win.MathJax?.typesetPromise) {
-      win.MathJax.typesetPromise(els).catch(() => {});
-    }
-  }, []);
-
-  // 流式结束后排版新增消息
-  const prevSending = useRef(isSending);
-  useEffect(() => {
-    if (prevSending.current && !isSending && messagesContainerRef.current) {
-      const timer = window.setTimeout(() => {
-        const container = messagesContainerRef.current;
-        if (!container) return;
-        // 只取未排版过的新消息块（按索引跳过已处理的）
-        const msgBlocks = container.querySelectorAll('[data-msg-id]');
-        const newBlocks: HTMLElement[] = [];
-        msgBlocks.forEach((el) => {
-          const block = el as HTMLElement;
-          const idx = Number(block.dataset.msgIdx ?? -1);
-          if (idx >= typesetCount.current) newBlocks.push(block);
-        });
-        typesetCount.current = msgBlocks.length;
-        doTypeset(newBlocks);
-      }, 150);
-      return () => window.clearTimeout(timer);
-    }
-    prevSending.current = isSending;
-  }, [isSending, doTypeset]);
-
-  // 初始已有消息时排版一次
-  useEffect(() => {
-    let attempts = 0;
-    const tryTypeset = () => {
-      const container = messagesContainerRef.current;
-      if (!container) return;
-      const win = window as any;
-      if (win.MathJax?.typesetPromise) {
-        win.MathJax.typesetPromise([container]).catch(() => {});
-        const msgBlocks = container.querySelectorAll('[data-msg-id]');
-        typesetCount.current = msgBlocks.length;
-      } else if (attempts < 5) {
-        attempts++;
-        window.setTimeout(tryTypeset, 300);
-      }
-    };
-    window.setTimeout(tryTypeset, 200);
-  }, [doTypeset]);
   const addU = useChatStore((s) => s.addUserMessage);
   const startS = useChatStore((s) => s.startStreaming);
   const onStart = useChatStore((s) => s.onStreamStart);
@@ -377,7 +326,7 @@ export const ChatNode = memo(function ChatNode({ id, data, selected }: NodeProps
             const isEditing = editingMsgId === msg.id;
             const shouldHighlightSuccess = msg.role === 'assistant' && !!flashMsgIds[msg.id];
             return (
-              <div key={msg.id} data-msg-id={msg.id} data-msg-idx={msgIdx} onContextMenu={(e) => handleContextMenu(e, msg)} className={cn('mb-3 rounded-lg px-3 py-2 text-sm group relative transition-shadow duration-300', shouldHighlightSuccess && 'message-success-highlight', msg.role === 'user' ? 'bg-zinc-100 dark:bg-zinc-700/50 ml-4' : msg.role === 'assistant' ? 'bg-white dark:bg-zinc-800/50 mr-4 border border-zinc-100 dark:border-zinc-700/50' : 'bg-blue-50 dark:bg-blue-900/20 text-xs mr-4')}>
+              <div key={msg.id} onContextMenu={(e) => handleContextMenu(e, msg)} className={cn('mb-3 rounded-lg px-3 py-2 text-sm group relative transition-shadow duration-300', shouldHighlightSuccess && 'message-success-highlight', msg.role === 'user' ? 'bg-zinc-100 dark:bg-zinc-700/50 ml-4' : msg.role === 'assistant' ? 'bg-white dark:bg-zinc-800/50 mr-4 border border-zinc-100 dark:border-zinc-700/50' : 'bg-blue-50 dark:bg-blue-900/20 text-xs mr-4')}>
                 <div className="flex items-center justify-between mb-1">
                   <div className={cn('text-[10px] font-medium uppercase tracking-wide', msg.role === 'user' ? 'text-zinc-500' : msg.role === 'assistant' ? (msg.status === 'streaming' ? 'text-zinc-400' : msg.status === 'pending' ? 'text-zinc-400' : msg.status === 'error' ? 'text-red-500' : 'text-zinc-400') : 'text-blue-500')}>
                     {renderMessageStatus(msg)}
@@ -402,7 +351,7 @@ export const ChatNode = memo(function ChatNode({ id, data, selected }: NodeProps
                   </div>
                 ) : msg.role === 'assistant' || msg.role === 'system' ? (
                   <div className="prose prose-sm dark:prose-invert max-w-none break-words prose-pre:p-0 prose-pre:bg-transparent">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm, remarkSupersub]} rehypePlugins={[[rehypeMathjax, { tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] } }], rehypeHighlight]}>{normalizeMathDelimiters((typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)) || (msg.status === 'streaming' ? '▋' : msg.status === 'pending' ? '⏳ 排队中...' : ''))}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm, remarkSupersub]} rehypePlugins={[[rehypeMathjax, mathjaxTexOptions], rehypeHighlight]}>{normalizeMathDelimiters((typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)) || (msg.status === 'streaming' ? '▋' : msg.status === 'pending' ? '⏳ 排队中...' : ''))}</ReactMarkdown>
                   </div>
                 ) : (
                   <div className="whitespace-pre-wrap break-words text-zinc-700 dark:text-zinc-300">{(typeof msg.content === 'string' ? msg.content : (msg.content as any[]).filter((p: any) => p.type === 'text').map((p: any) => p.text).join(''))}</div>

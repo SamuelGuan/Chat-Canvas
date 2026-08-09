@@ -41,7 +41,7 @@ export const pdfCardPlugin: CardPlugin = {
     width: 1400,
     height: 1100,
   },
-  allowIntraLayer: false,
+  allowIntraLayer: true,
   component: PdfNode,
   output,
   // pdf 无 input（非 LLM 消费者）

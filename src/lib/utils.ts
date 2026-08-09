@@ -6,20 +6,40 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { SessionData } from '@/types';
 
+/**
+ * rehype-mathjax/svg 的 TeX 输入配置：自定义宏（原 index.html 全局 MathJax 配置迁移至此）。
+ * 编译期 SVG 渲染，不依赖运行时 MathJax，Note / Chat 共用保证宏行为一致。
+ */
+export const mathjaxTexOptions = {
+  tex: {
+    macros: {
+      Hom: '\\operatorname{Hom}',
+      id: '\\operatorname{id}',
+      Ob: '\\operatorname{Ob}',
+      Mor: '\\operatorname{Mor}',
+      colim: '\\operatorname{colim}',
+      lim: '\\operatorname{lim}',
+    },
+  },
+};
+
 /** 合并 Tailwind 类名 */
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
 /**
- * React.memo 比较函数：浅比较 props 但忽略 data.position。
- * 拖拽时仅 position 变化，React Flow 用 CSS transform 定位，无需 React 重渲染。
+ * React.memo 比较函数：浅比较 props 但忽略位置字段。
+ * 拖拽时仅位置变化，React Flow 用 CSS transform 定位，无需 React 重渲染。
+ * 注意：除 data.position 外，v12 NodeProps 顶层的 positionAbsoluteX/Y 也每帧更新，必须一并跳过，
+ * 否则 memo 每帧失效，拖动时全量重渲染（ChatNode 的 Markdown/高亮/MathJax 渲染极贵）。
  */
 export function shallowSkipPosition(prev: any, next: any): boolean {
   const prevKeys = Object.keys(prev);
   const nextKeys = Object.keys(next);
   if (prevKeys.length !== nextKeys.length) return false;
   for (const key of prevKeys) {
+    if (key === 'positionAbsoluteX' || key === 'positionAbsoluteY') continue;
     if (key === 'data' && prev.data && next.data && typeof prev.data === 'object' && typeof next.data === 'object') {
       // 递归比较 data，跳过 position
       const pd = { ...prev.data }; delete pd.position;
@@ -84,6 +104,11 @@ export function truncate(text: string, max = 50): string {
  * 按 fenced/inline 代码块切分文本，仅转换普通文本片段，代码片段原样保留，
  * 避免误伤代码中的字面 \( \[ 序列。
  *
+ * 定界符语义（与 micromark-extension-math 一致）：
+ * - \(...\) → $...$ 行内公式
+ * - \[...\] → 多行 $$ 块，行间公式（flow math 要求 $$ 独占行，故补换行）
+ * - 单行 $$...$$ 不改动：由 remark-math 按行内公式解析
+ *
  * :param text: 原始 markdown 文本
  * :return: 定界符归一化后的 markdown 文本
  */
@@ -94,7 +119,7 @@ export function normalizeMathDelimiters(text: string): string {
       // 奇数下标为代码片段，原样保留
       if (idx % 2 === 1) return segment;
       return segment
-        .replace(/\\\[([\s\S]*?)\\\]/g, (_m, inner: string) => `$$${inner}$$`)
+        .replace(/\\\[([\s\S]*?)\\\]/g, (_m, inner: string) => `$$\n${inner.trim()}\n$$`)
         .replace(/\\\(([\s\S]*?)\\\)/g, (_m, inner: string) => `$${inner}$`);
     })
     .join('');

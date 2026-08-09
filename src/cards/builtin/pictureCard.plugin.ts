@@ -34,7 +34,7 @@ export const pictureCardPlugin: CardPlugin = {
     width: 900,
     height: 700,
   },
-  allowIntraLayer: false,
+  allowIntraLayer: true,
   component: PictureNode,
   output,
   matchSearch,

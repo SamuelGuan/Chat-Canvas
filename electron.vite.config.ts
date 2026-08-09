@@ -29,6 +29,10 @@ export default defineConfig({
   renderer: {
     root: resolve(__dirname),
     plugins: [react()],
+    define: {
+      // 同 vite.config.ts：mathjax-full version.js 需要 PACKAGE_VERSION 常量
+      PACKAGE_VERSION: JSON.stringify('3.2.1'),
+    },
     build: {
       outDir: 'dist',
       rollupOptions: {

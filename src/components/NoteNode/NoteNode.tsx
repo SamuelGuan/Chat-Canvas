@@ -9,11 +9,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import remarkSupersub from 'remark-supersub';
-import rehypeMathjax from 'rehype-mathjax/browser';
+import rehypeMathjax from 'rehype-mathjax/svg';
 import rehypeHighlight from 'rehype-highlight';
 import { useCanvasStore } from '@/store/useCanvasStore';
 import { GraphNode } from '@/types';
-import { formatTime, normalizeMathDelimiters, shallowSkipPosition } from '@/lib/utils';
+import { formatTime, mathjaxTexOptions, normalizeMathDelimiters, shallowSkipPosition } from '@/lib/utils';
 import 'highlight.js/styles/github-dark.css';
 
 interface NoteNodeData extends GraphNode {
@@ -30,17 +30,13 @@ export const NoteNode = memo(function NoteNode({ id, data, selected }: NodeProps
   const [content, setContent] = useState(node.markdownContent ?? '');
   const [preview, setPreview] = useState(false);
   const [mode, setMode] = useState<NoteMode>(hasContent ? 'edit' : 'select');
+  // 本地显示尺寸：拖动 resizer 时实时更新保证视觉跟随，松手才写回 store
+  const [liveSize, setLiveSize] = useState(() => ({
+    width: node.width || 1200,
+    height: node.height || 1000,
+  }));
   const previewRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // MathJax 重新排版：预览区渲染新公式后触发
-  useEffect(() => {
-    if (!preview || !previewRef.current) return;
-    const win = window as any;
-    if (win.MathJax?.typesetPromise) {
-      win.MathJax.typesetPromise([previewRef.current]).catch(() => {});
-    }
-  }, [preview, content]);
 
   // 外部更新时同步（如 undo/redo），不在依赖中包含 content 避免输入时回写旧值
   useEffect(() => {
@@ -52,6 +48,11 @@ export const NoteNode = memo(function NoteNode({ id, data, selected }: NodeProps
     // content 不在依赖中：只在外部 store 变更时同步，用户输入不受影响
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node.markdownContent, id]);
+
+  // 外部尺寸变更（如 undo/redo）时同步本地显示尺寸
+  useEffect(() => {
+    setLiveSize({ width: node.width || 1200, height: node.height || 1000 });
+  }, [node.width, node.height]);
 
   const handleChange = useCallback((val: string) => {
     setContent(val);
@@ -108,9 +109,21 @@ export const NoteNode = memo(function NoteNode({ id, data, selected }: NodeProps
   return (
     <div
       className="relative rounded-lg border shadow-md bg-[#FFFDF7] dark:bg-zinc-800 border-amber-200 dark:border-violet-700 min-w-[400px]"
-      style={{ width: node.width || 1200, height: node.height || 1000 }}
+      style={{ width: liveSize.width, height: liveSize.height }}
     >
-      <NodeResizer minWidth={300} minHeight={200} isVisible={selected} lineStyle={{ borderColor: '#D97757' }} />
+      {/* 拖动中实时更新本地尺寸保证视觉跟随，松手写回 store；minWidth 与根 div 的 min-w-[400px] 对齐 */}
+      <NodeResizer
+        minWidth={400}
+        minHeight={200}
+        isVisible={selected}
+        lineStyle={{ borderColor: '#D97757' }}
+        onResizeStart={(_e, params) => setLiveSize({ width: params.width, height: params.height })}
+        onResize={(_e, params) => setLiveSize({ width: params.width, height: params.height })}
+        onResizeEnd={(_e, params) => {
+          setLiveSize({ width: params.width, height: params.height });
+          updateNode(id, { width: params.width, height: params.height });
+        }}
+      />
 
       {/* 标题栏 */}
       <div className="flex items-center justify-between border-b border-amber-200 dark:border-violet-700 px-3 py-2">
@@ -157,7 +170,7 @@ export const NoteNode = memo(function NoteNode({ id, data, selected }: NodeProps
           <div ref={previewRef} className="flex-1 overflow-y-auto p-3 prose prose-sm dark:prose-invert max-w-none font-medium">
             <ReactMarkdown
               remarkPlugins={[remarkGfm, remarkMath, remarkSupersub]}
-              rehypePlugins={[[rehypeMathjax, { tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] } }], rehypeHighlight]}
+              rehypePlugins={[[rehypeMathjax, mathjaxTexOptions], rehypeHighlight]}
             >
               {content ? normalizeMathDelimiters(content) : '*无内容*'}
             </ReactMarkdown>

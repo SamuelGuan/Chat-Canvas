@@ -5,10 +5,12 @@ import { fileURLToPath } from 'url';
 import { buildMenu } from './menu.js';
 import { IPC_CHANNELS } from './ipc-channels.js';
 import { deletePath, ensureDataRoot, existsPath, listDir, readBinaryFile, readJsonFile, resolveDataRoot, writeBinaryFile, writeJsonFile } from '../scripts/storeCore.js';
-import { startStoreWatcher } from '../scripts/storeWatcher.js';
+import { startStoreWatcher, type StoreWatcher } from '../scripts/storeWatcher.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 let mainWindow: BrowserWindow | null = null;
+let storeWatcher: StoreWatcher | null = null;
+let quitting = false;
 
 // 数据目录：dev 模式 process.cwd() 即项目根；打包后安装目录只读，落到 userData（Q2，打包路径打包时再验证）
 const dataRoot = app.isPackaged
@@ -55,7 +57,7 @@ ipcMain.handle(IPC_CHANNELS.STORE_EXISTS, (_e, relPath: string) => {
 // 数据目录文件监听：外部进程改文件 → 一致性校验收敛 → 推送渲染层联动（自写事件在 watcher 内过滤）
 app.whenReady().then(() => {
   ensureDataRoot(dataRoot);
-  startStoreWatcher(dataRoot, (paths) => {
+  storeWatcher = startStoreWatcher(dataRoot, (paths) => {
     mainWindow?.webContents.send(IPC_CHANNELS.STORE_CHANGED, paths);
   });
 });
@@ -74,6 +76,11 @@ function createWindow() {
       sandbox: false,
     },
     title: 'Chat Canvas',
+  });
+
+  // 窗口销毁后置空：watcher 回调 / 菜单点击才不会向已销毁窗口发 IPC（Object has been destroyed）
+  mainWindow.on('closed', () => {
+    mainWindow = null;
   });
 
   // 开发模式加载 Vite 开发服务器，生产模式加载构建产物
@@ -131,6 +138,14 @@ async function writeSecureData(key: string, value: string) {
 }
 
 app.whenReady().then(createWindow);
+
+// 退出清理：chokidar 监听句柄挂在事件循环上，不主动关闭会导致主进程退不干净（残留后台进程）
+app.on('will-quit', (event) => {
+  if (quitting || !storeWatcher) return;
+  quitting = true;
+  event.preventDefault(); // 拦下本次退出，等 watcher 关闭后强制退出
+  void storeWatcher.close().finally(() => app.exit(0));
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

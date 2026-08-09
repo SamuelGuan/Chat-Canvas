@@ -43,7 +43,7 @@ export const noteCardPlugin: CardPlugin = {
     width: 1200,
     height: 1000,
   },
-  allowIntraLayer: false,
+  allowIntraLayer: true,
   component: NoteNode,
   output,
   // note 无 input（非 LLM 消费者）

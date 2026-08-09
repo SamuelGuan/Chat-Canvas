@@ -189,6 +189,13 @@
   .prose > :first-child { margin-top: 0; }
   .prose > :last-child { margin-bottom: 0; }
 
+  /* MathJax SVG 公式：抵消 preflight 的 svg { display: block }，
+     否则行内公式的 <svg> 被强制块级而独占一行（行间公式的居中由容器块级 + text-align 决定，不受影响）；
+     基线对齐由 MathJax 写在 svg 内联样式上的 vertical-align 负值保证 */
+  mjx-container[jax='SVG'] > svg {
+    display: inline;
+  }
+
   /* 小标题：与上文拉开距离，与紧随的正文保持紧凑 */
   .prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
     @apply font-semibold text-zinc-900 dark:text-zinc-100;
