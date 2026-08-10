@@ -59,6 +59,14 @@ export interface SessionBundleFile {
 
 /* ===== 图节点 ===== */
 
+/*
+ * [架构提醒]
+ * GraphNode 当前以平铺可选字段承载 chat / note / pdf / picture 四种卡片的专属数据。
+ * 现阶段专属字段数量较少（~5 个），类型提示稍有不准但成本可接受，暂不引入 discriminated union。
+ * 注意：随着卡片类型增多，专属字段膨胀，可能导致"胖接口"问题。
+ * 届时可考虑按 type 做 discriminated union 拆分（如 ChatNode | NoteNode | PdfNode | PictureNode），
+ * 在此之前，新增卡片专属功能时优先考虑在组件内部维护状态，避免继续往 GraphNode 中添加专属字段。
+ */
 export interface GraphNode {
   id: string;
   type: 'chat' | 'note' | 'pdf' | 'picture';     // v0.5: 扩展联合 (v0.6+: + 'agent')
