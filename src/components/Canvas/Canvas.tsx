@@ -142,7 +142,7 @@ function CanvasInner() {
   // 滞后阈值避免临界抖动：zoom < 0.2 进入低细节，> 0.3 退出；
   // setState 函数式更新，值不变时 React 跳过渲染，平移缩放期高频触发无开销
   const handleMove = useCallback((_: unknown, vp: { zoom: number }) => {
-    setLowLod((prev) => (prev ? vp.zoom < 0.3 : vp.zoom < 0.2));
+    setLowLod((prev) => (prev ? vp.zoom < 0.3 : vp.zoom < 0.29));
   }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
