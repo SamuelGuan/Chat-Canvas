@@ -200,6 +200,7 @@ export interface CanvasViewport {
 /* ===== 上下文回溯策略 (D-04) ===== */
 
 export type ContextStrategy = 'last' | 'full';
+export type ReasoningEffort = 'default' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /* ===== 服务商与应用设置 ===== */
 
@@ -223,6 +224,7 @@ export interface AppSettings {
   providers: ProviderConfig[];
   activeProviderId: string;
   defaultModel: string;
+  reasoningEffort: ReasoningEffort;      // 全局思考强度；按服务商能力映射后下发
   theme: 'light' | 'dark' | 'system';
   contextDepth: number | 'root';        // D-04: 'root' | 1 | 3 | 5
   contextStrategy: ContextStrategy;     // ★ D-04: 回溯策略

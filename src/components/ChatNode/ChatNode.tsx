@@ -7,7 +7,7 @@ import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { Handle, Position, NodeProps, NodeResizer } from '@xyflow/react';
 import { useChatStore } from '@/store/useChatStore';
 import { useCanvasStore } from '@/store/useCanvasStore';
-import { useSettingsStore } from '@/store/useSettingsStore';
+import { useSettingsStore, normalizeBuiltinModelId } from '@/store/useSettingsStore';
 import { streamChat } from '@/lib/llm';
 import { mockStream } from '@/lib/mockStream';
 import { buildContext } from '@/lib/contextBuilder';
@@ -53,7 +53,7 @@ export const ChatNode = memo(function ChatNode({ id, data, selected }: NodeProps
   const duplicateNode = useCanvasStore((s) => s.duplicateNode);
 
   const settings = useSettingsStore();
-  const modelId = node.model || settings.defaultModel;
+  const modelId = normalizeBuiltinModelId(node.model || settings.defaultModel);
   const currentProvider = settings.getProviderByModel(modelId);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
@@ -108,7 +108,7 @@ export const ChatNode = memo(function ChatNode({ id, data, selected }: NodeProps
         { id: 'current', role: 'user' as const, content, createdAt: Date.now(), status: 'done' as const },
       ];
       if (currentProvider?.apiKey) {
-        await streamChat(allMessages, { baseURL: currentProvider.baseURL, apiKey: currentProvider.apiKey, model: modelId }, callbacks, controller.signal);
+        await streamChat(allMessages, { baseURL: currentProvider.baseURL, apiKey: currentProvider.apiKey, model: modelId, reasoningEffort: settings.reasoningEffort }, callbacks, controller.signal);
       } else {
         await mockStream(content, callbacks, controller.signal);
       }
@@ -298,7 +298,7 @@ export const ChatNode = memo(function ChatNode({ id, data, selected }: NodeProps
         <button onClick={openPromptEditor} className={cn('text-[10px] px-1.5 py-0.5 rounded border transition-colors', hasCustomPrompt ? 'border-blue-400 text-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-zinc-200 dark:border-zinc-600 text-zinc-400 hover:text-zinc-600')} title={hasCustomPrompt ? '卡片级提示已设置' : '设置卡片提示'}>
           {hasCustomPrompt ? <PencilIcon className="h-3 w-3" /> : <SettingsIcon className="h-3 w-3" />}
         </button>
-        <select value={node.model ?? ''} onChange={(e) => updateNode(id, { model: e.target.value })} className="rounded-md border px-2 py-0.5 text-xs border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400">
+        <select value={node.model ? normalizeBuiltinModelId(node.model) : ''} onChange={(e) => updateNode(id, { model: e.target.value })} className="rounded-md border px-2 py-0.5 text-xs border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400">
           <option value="">默认 ({settings.defaultModel})</option>
           {settings.providers.filter((p) => p.isEnabled).map((p) => (
             <optgroup key={p.id} label={p.name}>{p.models.map((m) => <option key={`${p.id}_${m.id}`} value={m.id}>{m.label}</option>)}</optgroup>

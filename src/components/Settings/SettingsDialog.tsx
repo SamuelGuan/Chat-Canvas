@@ -3,9 +3,11 @@
  * 设置面板（v0.3: D-04 回溯策略 + D-06 全局 system prompt）。
  */
 import { useState, useEffect } from 'react';
-import { useSettingsStore } from '@/store/useSettingsStore';
+import { useSettingsStore, normalizeBuiltinModelId } from '@/store/useSettingsStore';
 import { useCanvasStore } from '@/store/useCanvasStore';
 import { useElectron } from '@/hooks/useElectron';
+import { getProviderApiKind } from '@/lib/llm';
+import { getReasoningCapability, REASONING_UI_OPTIONS } from '@/lib/llmReasoning';
 import { cn } from '@/lib/utils';
 
 interface Props { open: boolean; onClose: () => void; }
@@ -29,9 +31,26 @@ export function SettingsDialog({ open, onClose }: Props) {
   // 导出目标 Session（'__all__' 表示全部；每次打开面板时重置为当前激活 Session）
   const [exportTarget, setExportTarget] = useState<string>(activeSessionId);
   useEffect(() => { if (open) setExportTarget(activeSessionId); }, [open, activeSessionId]);
+  const activeProvider = settings.providers.find((p) => p.id === activeTab);
+  const normalizedDefaultModel = normalizeBuiltinModelId(settings.defaultModel);
+  const defaultModelProvider = settings.getProviderByModel(normalizedDefaultModel);
+  const reasoningCapability = getReasoningCapability({
+    baseURL: defaultModelProvider?.baseURL ?? '',
+    model: normalizedDefaultModel,
+    reasoningEffort: settings.reasoningEffort,
+  });
+  const visibleReasoningOptions = REASONING_UI_OPTIONS.filter((opt) =>
+    reasoningCapability.supportedEfforts.includes(opt.value)
+  );
+  const supportedEffortsKey = reasoningCapability.supportedEfforts.join('|');
+
+  useEffect(() => {
+    if (!reasoningCapability.supportedEfforts.includes(settings.reasoningEffort)) {
+      settings.setReasoningEffort('default');
+    }
+  }, [supportedEffortsKey, settings.reasoningEffort]);
 
   if (!open) return null;
-  const activeProvider = settings.providers.find((p) => p.id === activeTab);
 
   async function handleExport() {
     const isAll = exportTarget === '__all__';
@@ -63,7 +82,20 @@ export function SettingsDialog({ open, onClose }: Props) {
     if (!activeProvider?.apiKey) { alert('请先填写 API Key'); return; }
     setTestStatus('testing');
     try {
-      const resp = await fetch(`${activeProvider.baseURL.replace(/\/$/, '')}/models`, { headers: { Authorization: `Bearer ${activeProvider.apiKey}` } });
+      let url = activeProvider.baseURL.trim().replace(/\/$/, '');
+      const apiKind = getProviderApiKind(url);
+      if (!url.endsWith('/v1')) {
+        url += '/v1';
+      }
+      const headers: Record<string, string> = apiKind === 'anthropic'
+        ? {
+            'x-api-key': activeProvider.apiKey,
+            'anthropic-version': '2023-06-01',
+          }
+        : {
+            Authorization: `Bearer ${activeProvider.apiKey}`,
+          };
+      const resp = await fetch(`${url}/models`, { headers });
       setTestStatus(resp.ok ? 'ok' : 'fail');
     } catch { setTestStatus('fail'); }
   }
@@ -107,9 +139,29 @@ export function SettingsDialog({ open, onClose }: Props) {
 
           <section>
             <h3 className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">默认模型</h3>
-            <select value={settings.defaultModel} onChange={(e) => settings.setDefaultModel(e.target.value)} className="w-full rounded-lg border px-3 py-2 text-sm outline-none border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
+            <select value={normalizedDefaultModel} onChange={(e) => settings.setDefaultModel(e.target.value)} className="w-full rounded-lg border px-3 py-2 text-sm outline-none border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
               {settings.providers.filter((p) => p.isEnabled).map((p) => (<optgroup key={p.id} label={p.name}>{p.models.map((m) => (<option key={m.id} value={m.id}>{p.name} · {m.label}</option>))}</optgroup>))}
             </select>
+          </section>
+
+          <section>
+            <h3 className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">思考强度</h3>
+            <div className="flex gap-2 flex-wrap">
+              {visibleReasoningOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => settings.setReasoningEffort(opt.value)}
+                  onMouseEnter={() => setHoverTip(opt.tip)}
+                  onMouseLeave={() => setHoverTip(null)}
+                  onFocus={() => setHoverTip(opt.tip)}
+                  onBlur={() => setHoverTip(null)}
+                  className={cn('rounded-lg px-3 py-1.5 text-xs font-medium transition-colors', settings.reasoningEffort === opt.value ? 'bg-[#D97757] text-white dark:bg-zinc-100 dark:text-zinc-900' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400')}
+                >{opt.label}</button>
+              ))}
+            </div>
+            <p className={cn('mt-2 min-h-[28px] rounded-md bg-zinc-50 dark:bg-zinc-800/60 px-2 py-1.5 text-[11px] leading-relaxed transition-colors', hoverTip ? 'text-zinc-600 dark:text-zinc-300' : 'text-zinc-400')}>
+              {hoverTip ?? reasoningCapability.note}
+            </p>
           </section>
 
           {/* ★ D-04: 上下文回溯策略 */}

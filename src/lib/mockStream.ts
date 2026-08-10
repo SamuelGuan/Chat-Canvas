@@ -16,7 +16,7 @@ const MOCK_REPLIES = [
 2. 选择服务商，填入 API Key
 3. 回到画布开始对话
 
-> 支持 DeepSeek / Kimi (Moonshot) / 智谱 GLM 等所有 OpenAI 兼容接口。
+> 支持 DeepSeek / Kimi (Moonshot) / 智谱 GLM / OpenAI GPT / Claude 等主流接口。
 
 \`\`\`ts
 // 示例：DeepSeek Chat
@@ -58,6 +58,8 @@ model: deepseek-chat
 | DeepSeek | platform.deepseek.com/api_keys |
 | Kimi | platform.moonshot.cn/console |
 | GLM | open.bigmodel.cn/usercenter |
+| OpenAI | platform.openai.com/api-keys |
+| Claude | console.anthropic.com/settings/keys |
 
 配置后此卡片会**自动用真实模型**重新生成回复。`,
 ];

@@ -23,6 +23,12 @@ export function migrateLegacyBlob(state: any, version: number): any {
       'moonshot-v1-128k': 'kimi-k2.6',
       'glm-4-flash': 'glm-5.2',
       'glm-4-plus': 'glm-5.1',
+      'gpt-5': 'gpt-5.6-sol',
+      'gpt-5-mini': 'gpt-5.6-luna',
+      'gpt-4.1': 'gpt-5.6-terra',
+      'claude-sonnet-4-20250514': 'claude-fable-5',
+      'claude-opus-4-20250514': 'claude-fable-5',
+      'claude-3-5-haiku-20241022': 'claude-fable-5',
     };
     const migrateNodesInSession = (session: any) => {
       if (!session?.nodes) return;
